@@ -1,0 +1,6 @@
+# Build output
+Gheen.app/
+*.dSYM/
+
+# macOS
+.DS_Store
