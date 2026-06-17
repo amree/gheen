@@ -12,13 +12,14 @@ final class Monitor: ObservableObject {
     @Published private(set) var aggregate: Aggregate = .idle
     @Published private(set) var errorBanner: String?
     @Published private(set) var login: String?
+    @Published private(set) var pollCount: Int = 0  // increments each poll; forces view refresh
 
     private let settings: SettingsStore
     private let notifier: NotificationManager
     private var client: GitHubClient
 
     private var timer: Timer?
-    private var isPolling = false
+    @Published private(set) var isPolling = false
     private var hasUnackedFailure = false
 
     // Per-repo state: baseline, active-key set, and poll-start cursor are all
@@ -113,18 +114,13 @@ final class Monitor: ObservableObject {
 
         var repoResults: [String: [Run]] = [:]
         var repoErrors: [String: Error] = [:]
-        await withTaskGroup(of: (String, Result<[Run], Error>).self) { group in
-            for repo in repos {
-                group.addTask { [client] in
-                    do { return (repo, .success(try await client.listRuns(repo: repo, user: user))) }
-                    catch { return (repo, .failure(error)) }
-                }
-            }
-            for await (repo, result) in group {
-                switch result {
-                case .success(let runs): repoResults[repo] = runs
-                case .failure(let error): repoErrors[repo] = error
-                }
+        // Serial loop — avoids @MainActor + withTaskGroup result-collection issues in Swift 5.
+        // With typical repo counts (1-5) the latency difference is negligible.
+        for repo in repos {
+            do {
+                repoResults[repo] = try await client.listRuns(repo: repo, user: user)
+            } catch {
+                repoErrors[repo] = error
             }
         }
 
@@ -184,6 +180,7 @@ final class Monitor: ObservableObject {
         activeRuns = allActive.sorted { $0.updatedAt > $1.updatedAt }
         recentRuns = Array(allFinished.sorted { $0.updatedAt > $1.updatedAt }.prefix(10))
         recomputeAggregate()
+        pollCount += 1
     }
 
     // MARK: - Helpers
