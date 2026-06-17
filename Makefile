@@ -30,6 +30,6 @@ run: build
 clean:
 	rm -rf $(APP)
 
-install: build
+install: clean build
 	cp -R $(APP) /Applications/$(APP)
 	@echo "==> Installed to /Applications/$(APP)"
