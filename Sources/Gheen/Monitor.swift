@@ -35,7 +35,7 @@ final class Monitor: ObservableObject {
     }
     private var repoStates: [String: RepoState] = [:]
 
-    nonisolated init(settings: SettingsStore, notifier: NotificationManager) {
+    init(settings: SettingsStore, notifier: NotificationManager) {
         self.settings = settings
         self.notifier = notifier
         self.client = GitHubClient(
