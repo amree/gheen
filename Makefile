@@ -5,7 +5,7 @@ SOURCES = $(wildcard Sources/Gheen/*.swift)
 
 build: $(APP)
 
-$(APP): $(SOURCES) Resources/Info.plist
+$(APP): $(SOURCES) Resources/Info.plist Resources/AppIcon.icns
 	@rm -rf $(APP)
 	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	@echo "==> Compiling (Apple Silicon, target macOS 13)"
@@ -18,8 +18,9 @@ $(APP): $(SOURCES) Resources/Info.plist
 		-framework UserNotifications \
 		-o $(APP)/Contents/MacOS/Gheen \
 		$(SOURCES)
-	@echo "==> Bundling Info.plist"
+	@echo "==> Bundling Info.plist and icons"
 	@cp Resources/Info.plist $(APP)/Contents/Info.plist
+	@cp Resources/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
 	@echo "==> Ad-hoc signing"
 	@codesign --force --deep --sign - $(APP)
 	@echo "==> Built $(APP)"
