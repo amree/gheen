@@ -148,5 +148,6 @@ private struct RunRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(run.isPR ? run.displayTitle : "")
     }
 }
