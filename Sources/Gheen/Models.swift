@@ -40,10 +40,10 @@ struct Run: Codable, Identifiable, Hashable, Sendable {
     var eventLabel: String {
         switch event {
         case "pull_request", "pull_request_target": return "PR"
-        case "push":              return "push"
-        case "workflow_dispatch": return "manual"
-        case "schedule":          return "scheduled"
-        case "release":           return "release"
+        case "push":              return "Push"
+        case "workflow_dispatch": return "Manual"
+        case "schedule":          return "Scheduled"
+        case "release":           return "Release"
         default:                  return event
         }
     }

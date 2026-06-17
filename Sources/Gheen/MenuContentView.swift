@@ -5,7 +5,7 @@ struct MenuContentView: View {
     @EnvironmentObject var monitor: Monitor
     @EnvironmentObject var settings: SettingsStore
     @State private var showSettings = false
-    @State private var filterPR = false
+    @State private var filterEvent: String = ""
 
     var body: some View {
         Group {
@@ -28,13 +28,14 @@ struct MenuContentView: View {
             HStack {
                 Text("Gheen").font(.headline)
                 Spacer()
-                if !monitor.activeRuns.isEmpty || !monitor.recentRuns.isEmpty {
-                    Picker("", selection: $filterPR) {
-                        Text("All").tag(false)
-                        Text("PRs").tag(true)
+                if availableEventLabels.count > 1 {
+                    Picker("", selection: $filterEvent) {
+                        Text("All").tag("")
+                        ForEach(availableEventLabels, id: \.self) { label in
+                            Text(label).tag(label)
+                        }
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 80)
                 }
             }
 
@@ -66,18 +67,30 @@ struct MenuContentView: View {
         }
     }
 
+    private var availableEventLabels: [String] {
+        var seen = Set<String>()
+        var labels: [String] = []
+        for run in monitor.activeRuns + monitor.recentRuns {
+            let label = run.eventLabel
+            if seen.insert(label).inserted { labels.append(label) }
+        }
+        return labels
+    }
+
     private var filteredActive: [Run] {
-        filterPR ? monitor.activeRuns.filter(\.isPR) : monitor.activeRuns
+        filterEvent.isEmpty ? monitor.activeRuns
+            : monitor.activeRuns.filter { $0.eventLabel == filterEvent }
     }
 
     private var filteredRecent: [Run] {
-        filterPR ? monitor.recentRuns.filter(\.isPR) : monitor.recentRuns
+        filterEvent.isEmpty ? monitor.recentRuns
+            : monitor.recentRuns.filter { $0.eventLabel == filterEvent }
     }
 
     @ViewBuilder
     private var runSections: some View {
         if filteredActive.isEmpty && filteredRecent.isEmpty {
-            Text(filterPR ? "No PR runs yet." : "No runs you triggered yet.")
+            Text(filterEvent.isEmpty ? "No runs you triggered yet." : "No \(filterEvent) runs.")
                 .font(.callout).foregroundStyle(.secondary).padding(.vertical, 4)
         }
 
