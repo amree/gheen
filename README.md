@@ -7,18 +7,14 @@ It reuses your existing `gh` CLI login — no separate auth, no tokens to manage
 ## Prerequisites
 
 - Apple Silicon Mac, macOS 13+
-- [GitHub CLI](https://cli.github.com) installed and logged in:
-  ```sh
-  gh auth status   # should show "Logged in"
-  ```
-- Xcode command line tools (`swiftc`, `codesign`) — `xcode-select --install`
+- [GitHub CLI](https://cli.github.com) installed and logged in (`gh auth status`)
+- Xcode command line tools — `xcode-select --install`
 
 ## Build & run
 
 ```sh
 make run        # build + launch (recommended)
-make build      # build only, no launch
-make install    # build + copy to /Applications (useful for sharing without notarization)
+make build      # build only
 make clean      # remove Gheen.app
 ```
 
@@ -26,9 +22,34 @@ Or directly: `bash build.sh` (compiles, signs, and launches in one step).
 
 A menubar icon appears (no Dock icon). Approve the notification permission prompt on first launch.
 
-> **No notifications?** Check System Settings → Notifications → Gheen — authorization may have been denied silently on first launch. If missing from the list, move `Gheen.app` to `/Applications` and relaunch (macOS restricts notification registration for apps in arbitrary paths). Re-approve the prompt, then quit and reopen.
+## Installing on another Mac
 
-> **Sharing with another Mac?** Run `make install` on the source machine, then AirDrop `/Applications/Gheen.app` to the target. On the target Mac, run `xattr -dr com.apple.quarantine /Applications/Gheen.app` once to clear the Gatekeeper quarantine flag (ad-hoc signed, not notarized). Requires `gh` installed and logged in on the target too.
+Gheen is ad-hoc signed (not notarized), so you can't distribute it via the App Store. Two options:
+
+**Option A — Build from source (cleanest)**
+
+```sh
+# On the target Mac:
+xcode-select --install          # if not already done
+brew install gh && gh auth login
+git clone <your-repo> gheen && cd gheen
+make run
+```
+
+**Option B — Transfer the binary**
+
+```sh
+# On the source Mac:
+make install                    # copies Gheen.app to /Applications
+
+# AirDrop /Applications/Gheen.app to the target Mac, then on the target:
+xattr -dr com.apple.quarantine /Applications/Gheen.app   # clear Gatekeeper flag
+open /Applications/Gheen.app
+```
+
+The target Mac still needs `gh` installed and authenticated (`gh auth login`).
+
+> **No notifications?** Check System Settings → Notifications → Gheen. If missing, move `Gheen.app` to `/Applications` and relaunch — macOS restricts notification registration for apps outside standard paths.
 
 ## Usage
 
