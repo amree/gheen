@@ -12,6 +12,7 @@ final class Monitor: ObservableObject {
     @Published private(set) var aggregate: Aggregate = .idle
     @Published private(set) var errorBanner: String?
     @Published private(set) var login: String?
+    @Published private(set) var lastPolledAt: Date?
 
     private let settings: SettingsStore
     private let notifier: NotificationManager
@@ -69,6 +70,17 @@ final class Monitor: ObservableObject {
 
     func forgetRepo(_ repo: String) {
         repoStates.removeValue(forKey: repo)
+    }
+
+    func rerun(_ run: Run, failedOnly: Bool = false) {
+        Task {
+            do {
+                try await client.rerunRun(id: run.databaseId, repo: run.repo, failedOnly: failedOnly)
+                await poll()
+            } catch {
+                errorBanner = message(for: error)
+            }
+        }
     }
 
     func rebuildClient() {
@@ -195,6 +207,7 @@ final class Monitor: ObservableObject {
         settings.notifiedKeys = prune(notified)
         activeRuns = allActive.sorted { $0.updatedAt > $1.updatedAt }
         recentRuns = Array(allFinished.sorted { $0.updatedAt > $1.updatedAt }.prefix(10))
+        lastPolledAt = Date()
         recomputeAggregate()
     }
 

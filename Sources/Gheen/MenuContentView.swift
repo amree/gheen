@@ -61,12 +61,19 @@ struct MenuContentView: View {
 
             Divider()
 
-            HStack {
-                Button("Settings") { showSettings = true }
-                Spacer()
-                Button("Quit") { NSApplication.shared.terminate(nil) }
+            VStack(spacing: 4) {
+                HStack {
+                    Button("Settings") { showSettings = true }
+                    Spacer()
+                    Button("Quit") { NSApplication.shared.terminate(nil) }
+                }
+                .buttonStyle(.borderless)
+                if let t = monitor.lastPolledAt {
+                    Text("Updated \(timeAgo(t))")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity)
+                }
             }
-            .buttonStyle(.borderless)
         }
     }
 
@@ -105,6 +112,14 @@ struct MenuContentView: View {
         }
     }
 
+    private func timeAgo(_ date: Date) -> String {
+        let s = Date().timeIntervalSince(date)
+        if s < 60    { return "just now" }
+        if s < 3600  { return "\(Int(s / 60))m ago" }
+        if s < 86400 { return "\(Int(s / 3600))h ago" }
+        return "\(Int(s / 86400))d ago"
+    }
+
     private func section(_ title: String, runs: [Run]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title.uppercased())
@@ -118,6 +133,7 @@ struct MenuContentView: View {
 
 private struct RunRow: View {
     let run: Run
+    @EnvironmentObject var monitor: Monitor
 
     private var dotColor: Color {
         if run.isActive { return .yellow }
@@ -152,5 +168,17 @@ private struct RunRow: View {
         }
         .buttonStyle(.plain)
         .help(run.isPR ? run.displayTitle : "")
+        .contextMenu {
+            if run.isCompleted {
+                Button("Open in Browser") {
+                    if let url = URL(string: run.url) { NSWorkspace.shared.open(url) }
+                }
+                Divider()
+                if run.isFailure {
+                    Button("Rerun Failed Jobs") { monitor.rerun(run, failedOnly: true) }
+                }
+                Button("Rerun All Jobs") { monitor.rerun(run) }
+            }
+        }
     }
 }

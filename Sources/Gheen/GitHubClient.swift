@@ -139,6 +139,12 @@ actor GitHubClient {
         return login
     }
 
+    func rerunRun(id: Int, repo: String, failedOnly: Bool = false) async throws {
+        var args = ["run", "rerun", "\(id)", "-R", repo]
+        if failedOnly { args.append("--failed") }
+        _ = try await run(args)
+    }
+
     func listRuns(repo: String, user: String) async throws -> [Run] {
         let fields = "databaseId,attempt,status,conclusion,workflowName," +
                      "displayTitle,headBranch,event,url,createdAt,updatedAt"
