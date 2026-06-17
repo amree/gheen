@@ -20,6 +20,8 @@ final class Monitor: ObservableObject {
     private var timer: Timer?
     private var isPolling = false
     private var hasUnackedFailure = false
+    private var backoffMultiplier: Double = 1.0
+    private let maxBackoffInterval: TimeInterval = 600
 
     // Per-repo state: baseline, active-key set, and poll-start cursor are all
     // scoped to each repo independently. This prevents a failed repo from
@@ -57,7 +59,8 @@ final class Monitor: ObservableObject {
 
     func scheduleTimer() {
         timer?.invalidate()
-        let timer = Timer(timeInterval: settings.pollInterval, repeats: true) { [weak self] _ in
+        let interval = min(settings.pollInterval * backoffMultiplier, maxBackoffInterval)
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { await self?.poll() }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -71,13 +74,19 @@ final class Monitor: ObservableObject {
     func rebuildClient() {
         client = GitHubClient(overridePath: settings.ghPath.isEmpty ? nil : settings.ghPath)
         login = settings.cachedLogin
+        backoffMultiplier = 1.0
+        scheduleTimer()
     }
 
-    /// Called when the dropdown opens — clears the red failure state.
+    /// Called when the dropdown opens — clears red failure state and resets backoff.
     func acknowledge() {
         if hasUnackedFailure {
             hasUnackedFailure = false
             recomputeAggregate()
+        }
+        if backoffMultiplier != 1.0 {
+            backoffMultiplier = 1.0
+            scheduleTimer()
         }
     }
 
@@ -131,6 +140,14 @@ final class Monitor: ObservableObject {
             : "Some repos failed: \(repoErrors.keys.joined(separator: ", "))"
 
         processRepos(repoResults, pollStart: pollStart)
+
+        let newMultiplier = activeRuns.isEmpty
+            ? min(backoffMultiplier * 2, maxBackoffInterval / max(settings.pollInterval, 1))
+            : 1.0
+        if newMultiplier != backoffMultiplier {
+            backoffMultiplier = newMultiplier
+            scheduleTimer()
+        }
     }
 
     private func processRepos(_ repoResults: [String: [Run]], pollStart: Date) {
