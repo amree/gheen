@@ -162,10 +162,18 @@ final class Monitor: ObservableObject {
         }
     }
 
+    private struct PendingNotification {
+        let title: String
+        let body: String
+        let url: String
+        let isFailure: Bool
+    }
+
     private func processRepos(_ repoResults: [String: [Run]], pollStart: Date) {
         var notified = settings.notifiedKeys
         var allActive: [Run] = []
         var allFinished: [Run] = []
+        var pending: [PendingNotification] = []
 
         for (repo, runs) in repoResults {
             var state = repoStates[repo, default: RepoState()]
@@ -186,10 +194,11 @@ final class Monitor: ObservableObject {
                     // Notify on normal active→completed transition OR short run
                     // that started+finished between polls (updatedAt ≥ cursor).
                     if wasActive || run.updatedAt >= cursor {
-                        notifier.notify(
+                        pending.append(PendingNotification(
                             title: notificationTitle(run),
                             body: notificationBody(run),
-                            url: run.url)
+                            url: run.url,
+                            isFailure: run.isFailure))
                         notified.insert(key)
                         if run.isFailure { hasUnackedFailure = true }
                     }
@@ -202,6 +211,23 @@ final class Monitor: ObservableObject {
 
             allActive.append(contentsOf: active)
             allFinished.append(contentsOf: finished)
+        }
+
+        // Fire notifications — batch into one summary if multiple completed this poll.
+        if pending.count == 1 {
+            let n = pending[0]
+            notifier.notify(title: n.title, body: n.body, url: n.url)
+        } else if pending.count > 1 {
+            let failures = pending.filter(\.isFailure).count
+            let successes = pending.count - failures
+            var parts: [String] = []
+            if successes > 0 { parts.append("\(successes) succeeded") }
+            if failures > 0 { parts.append("\(failures) failed") }
+            let anchor = pending.first(where: \.isFailure) ?? pending[0]
+            notifier.notify(
+                title: "\(pending.count) workflows finished",
+                body: parts.joined(separator: ", "),
+                url: anchor.url)
         }
 
         settings.notifiedKeys = prune(notified)
