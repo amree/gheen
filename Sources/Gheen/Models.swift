@@ -52,6 +52,10 @@ struct Run: Codable, Identifiable, Hashable, Sendable {
         event == "pull_request" || event == "pull_request_target"
     }
 
+    var repoName: String {
+        repo.split(separator: "/").last.map(String.init) ?? repo
+    }
+
     /// Emoji for a finished run's conclusion.
     var conclusionEmoji: String {
         switch conclusion {

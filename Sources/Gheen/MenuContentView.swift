@@ -120,8 +120,11 @@ private struct RunRow: View {
                 Image(systemName: run.isActive ? "circle.dotted" : "circle.fill")
                     .foregroundStyle(dotColor)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(run.workflowName).font(.callout).fontWeight(.medium)
-                    Text("\(run.repo) · \(run.headBranch) · \(run.eventLabel)")
+                    Text(run.isPR ? run.headBranch : run.workflowName)
+                        .font(.callout).fontWeight(.medium)
+                    Text(run.isPR
+                        ? "\(run.repoName) · \(run.workflowName)"
+                        : "\(run.repoName) · \(run.headBranch) · \(run.eventLabel)")
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                 }
