@@ -28,15 +28,13 @@ struct MenuContentView: View {
             HStack {
                 Text("Gheen").font(.headline)
                 Spacer()
-                if availableEventLabels.count > 1 {
-                    Picker("", selection: $filterEvent) {
-                        Text("All").tag("")
-                        ForEach(availableEventLabels, id: \.self) { label in
-                            Text(label).tag(label)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                Picker("", selection: $filterEvent) {
+                    Text("All").tag("")
+                    Text("PR").tag("PR")
+                    Text("Push").tag("Push")
+                    Text("Manual").tag("Manual")
                 }
+                .pickerStyle(.segmented)
             }
 
             if let banner = monitor.errorBanner {
@@ -79,16 +77,6 @@ struct MenuContentView: View {
             }
             .buttonStyle(.borderless)
         }
-    }
-
-    private var availableEventLabels: [String] {
-        var seen = Set<String>()
-        var labels: [String] = []
-        for run in monitor.activeRuns + monitor.recentRuns {
-            let label = run.eventLabel
-            if seen.insert(label).inserted { labels.append(label) }
-        }
-        return labels
     }
 
     private var filteredActive: [Run] {
