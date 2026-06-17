@@ -41,9 +41,9 @@ final class Monitor: ObservableObject {
 
     var iconName: String {
         switch aggregate {
-        case .active:  return "arrow.triangle.2.circlepath"
-        case .failure: return "xmark.circle.fill"
-        case .idle:    return "circle.dotted"
+        case .active:  return "circle.dotted"
+        case .failure: return "circle.fill"
+        case .idle:    return "circle"
         }
     }
 

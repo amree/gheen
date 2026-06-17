@@ -5,6 +5,7 @@ struct MenuContentView: View {
     @EnvironmentObject var monitor: Monitor
     @EnvironmentObject var settings: SettingsStore
     @State private var showSettings = false
+    @State private var filterPR = false
 
     var body: some View {
         Group {
@@ -27,9 +28,13 @@ struct MenuContentView: View {
             HStack {
                 Text("Gheen").font(.headline)
                 Spacer()
-                if !monitor.activeRuns.isEmpty {
-                    Text("\(monitor.activeRuns.count) running")
-                        .font(.caption).foregroundStyle(.secondary)
+                if !monitor.activeRuns.isEmpty || !monitor.recentRuns.isEmpty {
+                    Picker("", selection: $filterPR) {
+                        Text("All").tag(false)
+                        Text("PRs").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 80)
                 }
             }
 
@@ -61,18 +66,26 @@ struct MenuContentView: View {
         }
     }
 
+    private var filteredActive: [Run] {
+        filterPR ? monitor.activeRuns.filter(\.isPR) : monitor.activeRuns
+    }
+
+    private var filteredRecent: [Run] {
+        filterPR ? monitor.recentRuns.filter(\.isPR) : monitor.recentRuns
+    }
+
     @ViewBuilder
     private var runSections: some View {
-        if monitor.activeRuns.isEmpty && monitor.recentRuns.isEmpty {
-            Text("No runs you triggered yet.")
+        if filteredActive.isEmpty && filteredRecent.isEmpty {
+            Text(filterPR ? "No PR runs yet." : "No runs you triggered yet.")
                 .font(.callout).foregroundStyle(.secondary).padding(.vertical, 4)
         }
 
-        if !monitor.activeRuns.isEmpty {
-            section("In progress", runs: monitor.activeRuns)
+        if !filteredActive.isEmpty {
+            section("In progress", runs: filteredActive)
         }
-        if !monitor.recentRuns.isEmpty {
-            section("Recently finished", runs: monitor.recentRuns)
+        if !filteredRecent.isEmpty {
+            section("Recently finished", runs: filteredRecent)
         }
     }
 
@@ -90,15 +103,25 @@ struct MenuContentView: View {
 private struct RunRow: View {
     let run: Run
 
+    private var dotColor: Color {
+        if run.isActive { return .yellow }
+        switch run.conclusion {
+        case "success":                                  return .green
+        case "failure", "timed_out", "startup_failure": return .red
+        default:                                         return .secondary
+        }
+    }
+
     var body: some View {
         Button {
             if let url = URL(string: run.url) { NSWorkspace.shared.open(url) }
         } label: {
             HStack(alignment: .top, spacing: 8) {
-                Text(run.rowSymbol)
+                Image(systemName: run.isActive ? "circle.dotted" : "circle.fill")
+                    .foregroundStyle(dotColor)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(run.workflowName).font(.callout).fontWeight(.medium)
-                    Text("\(run.repo) · \(run.headBranch)")
+                    Text("\(run.repo) · \(run.headBranch) · \(run.eventLabel)")
                         .font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)
                 }

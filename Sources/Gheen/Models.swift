@@ -37,6 +37,21 @@ struct Run: Codable, Identifiable, Hashable, Sendable {
         ["failure", "timed_out", "startup_failure"].contains(conclusion ?? "")
     }
 
+    var eventLabel: String {
+        switch event {
+        case "pull_request", "pull_request_target": return "PR"
+        case "push":              return "push"
+        case "workflow_dispatch": return "manual"
+        case "schedule":          return "scheduled"
+        case "release":           return "release"
+        default:                  return event
+        }
+    }
+
+    var isPR: Bool {
+        event == "pull_request" || event == "pull_request_target"
+    }
+
     /// Emoji for a finished run's conclusion.
     var conclusionEmoji: String {
         switch conclusion {
@@ -48,6 +63,4 @@ struct Run: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
-    /// Symbol shown in a list row: spinner-ish for active, conclusion emoji otherwise.
-    var rowSymbol: String { isActive ? "🟡" : conclusionEmoji }
 }
