@@ -86,6 +86,7 @@ struct SettingsView: View {
 
     private func remove(_ repo: String) {
         settings.watchedRepos.removeAll { $0 == repo }
+        monitor.forgetRepo(repo)
         Task { await monitor.poll() }
     }
 }

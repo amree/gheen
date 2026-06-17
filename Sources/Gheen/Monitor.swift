@@ -64,6 +64,10 @@ final class Monitor: ObservableObject {
         self.timer = timer
     }
 
+    func forgetRepo(_ repo: String) {
+        repoStates.removeValue(forKey: repo)
+    }
+
     func rebuildClient() {
         client = GitHubClient(overridePath: settings.ghPath.isEmpty ? nil : settings.ghPath)
         login = settings.cachedLogin
