@@ -12,14 +12,13 @@ final class Monitor: ObservableObject {
     @Published private(set) var aggregate: Aggregate = .idle
     @Published private(set) var errorBanner: String?
     @Published private(set) var login: String?
-    @Published private(set) var pollCount: Int = 0  // increments each poll; forces view refresh
 
     private let settings: SettingsStore
     private let notifier: NotificationManager
     private var client: GitHubClient
 
     private var timer: Timer?
-    @Published private(set) var isPolling = false
+    private var isPolling = false
     private var hasUnackedFailure = false
 
     // Per-repo state: baseline, active-key set, and poll-start cursor are all
@@ -180,7 +179,6 @@ final class Monitor: ObservableObject {
         activeRuns = allActive.sorted { $0.updatedAt > $1.updatedAt }
         recentRuns = Array(allFinished.sorted { $0.updatedAt > $1.updatedAt }.prefix(10))
         recomputeAggregate()
-        pollCount += 1
     }
 
     // MARK: - Helpers
