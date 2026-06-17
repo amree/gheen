@@ -23,7 +23,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         content.userInfo = ["url": url]
         let request = UNNotificationRequest(
             identifier: UUID().uuidString, content: content, trigger: nil)
-        center.add(request)
+        center.add(request) { error in
+            if let error { print("[Gheen] Notification error: \(error.localizedDescription)") }
+        }
     }
 
     // Click → open the run in the browser.

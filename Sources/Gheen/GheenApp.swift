@@ -24,6 +24,7 @@ struct GheenApp: App {
                 .environmentObject(monitor)
         } label: {
             Image(systemName: monitor.iconName)
+                .foregroundStyle(monitor.aggregate == .failure ? Color.red : Color.primary)
         }
         .menuBarExtraStyle(.window)
     }

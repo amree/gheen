@@ -13,8 +13,10 @@ rm -rf "$APP"
 mkdir -p "$BIN_DIR" "$RES_DIR"
 
 echo "==> Compiling (Apple Silicon, target macOS 13)"
-# -swift-version 5: pragmatic language mode for the MVP (keeps @MainActor /
-# actor annotations valid without strict-concurrency build failures).
+# -swift-version 5: explicit MVP choice. Swift 6 strict-concurrency mode fails
+# on `nonisolated init` assigning `let` stored properties of an @MainActor class
+# (a known Swift 6 nuance). The concurrency annotations (@MainActor, actor) are
+# correct at runtime; this is a language-mode limitation, not a logic bug.
 swiftc \
     -swift-version 5 \
     -target arm64-apple-macosx13.0 \

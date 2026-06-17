@@ -12,7 +12,7 @@ struct SettingsView: View {
             HStack {
                 Text("Settings").font(.headline)
                 Spacer()
-                Button("Done") { onClose() }
+                Button("Done") { monitor.rebuildClient(); onClose() }
             }
 
             Divider()

@@ -5,8 +5,6 @@ enum Aggregate {
     case idle, active, failure
 }
 
-/// Polls watched repos, diffs run state, fires notifications, and publishes
-/// UI state. All published mutation happens on the main actor.
 @MainActor
 final class Monitor: ObservableObject {
     @Published private(set) var activeRuns: [Run] = []
@@ -21,10 +19,18 @@ final class Monitor: ObservableObject {
 
     private var timer: Timer?
     private var isPolling = false
-    private var didBaseline = false
-    private var seenActiveKeys: Set<String> = []
-    private var prevPollStartedAt: Date?
     private var hasUnackedFailure = false
+
+    // Per-repo state: baseline, active-key set, and poll-start cursor are all
+    // scoped to each repo independently. This prevents a failed repo from
+    // corrupting the cursor or seenActiveKeys for repos that did succeed, and
+    // ensures a repo added after startup gets its own silent baseline pass.
+    private struct RepoState {
+        var baselined = false
+        var seenActiveKeys: Set<String> = []
+        var prevPollStartedAt: Date?
+    }
+    private var repoStates: [String: RepoState] = [:]
 
     nonisolated init(settings: SettingsStore, notifier: NotificationManager) {
         self.settings = settings
@@ -58,7 +64,6 @@ final class Monitor: ObservableObject {
         self.timer = timer
     }
 
-    /// Recreate the gh client (e.g. after the user edits the gh-path override).
     func rebuildClient() {
         client = GitHubClient(overridePath: settings.ghPath.isEmpty ? nil : settings.ghPath)
         login = settings.cachedLogin
@@ -99,77 +104,81 @@ final class Monitor: ObservableObject {
             recentRuns = []
             errorBanner = nil
             recomputeAggregate()
-            prevPollStartedAt = pollStart
             return
         }
 
-        var allRuns: [Run] = []
-        var firstError: Error?
-        await withTaskGroup(of: Result<[Run], Error>.self) { group in
+        var repoResults: [String: [Run]] = [:]
+        var repoErrors: [String: Error] = [:]
+        await withTaskGroup(of: (String, Result<[Run], Error>).self) { group in
             for repo in repos {
                 group.addTask { [client] in
-                    do { return .success(try await client.listRuns(repo: repo, user: user)) }
-                    catch { return .failure(error) }
+                    do { return (repo, .success(try await client.listRuns(repo: repo, user: user))) }
+                    catch { return (repo, .failure(error)) }
                 }
             }
-            for await result in group {
+            for await (repo, result) in group {
                 switch result {
-                case .success(let runs): allRuns.append(contentsOf: runs)
-                case .failure(let error): if firstError == nil { firstError = error }
+                case .success(let runs): repoResults[repo] = runs
+                case .failure(let error): repoErrors[repo] = error
                 }
             }
         }
 
-        // All repos failed → surface the error, keep last good state.
-        if allRuns.isEmpty, let error = firstError {
+        if repoResults.isEmpty, let error = repoErrors.values.first {
             setError(error)
-            prevPollStartedAt = pollStart
             return
         }
-        // Partial failure → show a banner but still process what we got.
-        errorBanner = firstError.map(message(for:))
+        errorBanner = repoErrors.isEmpty ? nil
+            : "Some repos failed: \(repoErrors.keys.joined(separator: ", "))"
 
-        process(allRuns, pollStart: pollStart)
-        prevPollStartedAt = pollStart
+        processRepos(repoResults, pollStart: pollStart)
     }
 
-    private func process(_ runs: [Run], pollStart: Date) {
-        let active = runs.filter { $0.isActive }
-            .sorted { $0.updatedAt > $1.updatedAt }
-        let finished = runs.filter { $0.isCompleted }
-            .sorted { $0.updatedAt > $1.updatedAt }
+    private func processRepos(_ repoResults: [String: [Run]], pollStart: Date) {
+        var notified = settings.notifiedKeys
+        var allActive: [Run] = []
+        var allFinished: [Run] = []
 
-        if !didBaseline {
-            // First poll: record everything currently finished so we never
-            // notify for runs that completed before the app started watching.
-            didBaseline = true
-            var notified = settings.notifiedKeys
-            for run in finished { notified.insert(run.runKey) }
-            settings.notifiedKeys = prune(notified)
-        } else {
-            var notified = settings.notifiedKeys
-            let cursor = prevPollStartedAt ?? pollStart
-            for run in finished {
-                let key = run.runKey
-                if notified.contains(key) { continue }
-                let wasActive = seenActiveKeys.contains(key)
-                // Notify on the normal transition OR for a short run that
-                // started+finished between two polls (updatedAt at/after cursor).
-                if wasActive || run.updatedAt >= cursor {
-                    notifier.notify(
-                        title: notificationTitle(run),
-                        body: notificationBody(run),
-                        url: run.url)
-                    notified.insert(key)
-                    if run.isFailure { hasUnackedFailure = true }
+        for (repo, runs) in repoResults {
+            var state = repoStates[repo, default: RepoState()]
+            let active = runs.filter { $0.isActive }
+            let finished = runs.filter { $0.isCompleted }
+
+            if !state.baselined {
+                // First successful poll for this repo — record all finished runs
+                // silently so we never notify for pre-existing completions.
+                state.baselined = true
+                for run in finished { notified.insert(run.runKey) }
+            } else {
+                let cursor = state.prevPollStartedAt ?? pollStart
+                for run in finished {
+                    let key = run.runKey
+                    if notified.contains(key) { continue }
+                    let wasActive = state.seenActiveKeys.contains(key)
+                    // Notify on normal active→completed transition OR short run
+                    // that started+finished between polls (updatedAt ≥ cursor).
+                    if wasActive || run.updatedAt >= cursor {
+                        notifier.notify(
+                            title: notificationTitle(run),
+                            body: notificationBody(run),
+                            url: run.url)
+                        notified.insert(key)
+                        if run.isFailure { hasUnackedFailure = true }
+                    }
                 }
             }
-            settings.notifiedKeys = prune(notified)
+
+            state.seenActiveKeys = Set(active.map { $0.runKey })
+            state.prevPollStartedAt = pollStart
+            repoStates[repo] = state
+
+            allActive.append(contentsOf: active)
+            allFinished.append(contentsOf: finished)
         }
 
-        seenActiveKeys = Set(active.map { $0.runKey })
-        activeRuns = active
-        recentRuns = Array(finished.prefix(10))
+        settings.notifiedKeys = prune(notified)
+        activeRuns = allActive.sorted { $0.updatedAt > $1.updatedAt }
+        recentRuns = Array(allFinished.sorted { $0.updatedAt > $1.updatedAt }.prefix(10))
         recomputeAggregate()
     }
 

@@ -36,7 +36,11 @@ actor GitHubClient {
     private func ghPath() async throws -> String {
         if let p = cachedGhPath { return p }
 
-        if let o = overridePath, FileManager.default.isExecutableFile(atPath: o) {
+        if let o = overridePath {
+            // User set an explicit path — honour it strictly, no silent fallback.
+            guard FileManager.default.isExecutableFile(atPath: o) else {
+                throw GitHubError.ghNotFound
+            }
             cachedGhPath = o
             return o
         }

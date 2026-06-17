@@ -21,7 +21,7 @@ bash build.sh
 
 This compiles `Sources/Gheen/*.swift` into `Gheen.app`, ad-hoc signs it, and launches it. A menubar icon appears (no Dock icon). Approve the notification permission prompt on first launch.
 
-> If notifications don't appear, move `Gheen.app` to `/Applications` and relaunch — macOS is stricter about notifications for apps run from arbitrary locations.
+> **No notifications?** Check System Settings → Notifications → Gheen — authorization may have been denied silently on first launch. If missing from the list, move `Gheen.app` to `/Applications` and relaunch (macOS restricts notification registration for apps in arbitrary paths). Re-approve the prompt, then quit and reopen.
 
 ## Usage
 
