@@ -16,7 +16,10 @@ struct MenuContentView: View {
         }
         .padding(12)
         .frame(width: 360)
-        .onAppear { monitor.acknowledge() }
+        .onAppear {
+            monitor.acknowledge()
+            Task { await monitor.poll() }
+        }
     }
 
     private var mainView: some View {
