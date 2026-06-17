@@ -56,6 +56,15 @@ struct Run: Codable, Identifiable, Hashable, Sendable {
         repo.split(separator: "/").last.map(String.init) ?? repo
     }
 
+    var timeAgo: String {
+        let ref = isActive ? createdAt : updatedAt
+        let s = Date().timeIntervalSince(ref)
+        if s < 60    { return "just now" }
+        if s < 3600  { return "\(Int(s / 60))m ago" }
+        if s < 86400 { return "\(Int(s / 3600))h ago" }
+        return "\(Int(s / 86400))d ago"
+    }
+
     /// Emoji for a finished run's conclusion.
     var conclusionEmoji: String {
         switch conclusion {

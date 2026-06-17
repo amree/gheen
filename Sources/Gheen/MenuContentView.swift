@@ -142,6 +142,8 @@ private struct RunRow: View {
                         .lineLimit(1).truncationMode(.middle)
                 }
                 Spacer()
+                Text(run.timeAgo)
+                    .font(.caption2).foregroundStyle(.tertiary)
             }
             .contentShape(Rectangle())
         }
