@@ -48,15 +48,15 @@ struct MenuContentView: View {
 
             Divider()
 
-            if settings.watchedRepos.isEmpty {
-                Text("Add a repo in Settings to start watching.")
-                    .font(.callout).foregroundStyle(.secondary)
-                    .padding(.vertical, 4)
-            } else if filteredActive.isEmpty && filteredRecent.isEmpty {
-                Text(filterEvent.isEmpty ? "No runs you triggered yet." : "No \(filterEvent) runs.")
-                    .font(.callout).foregroundStyle(.secondary).padding(.vertical, 4)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
+                if settings.watchedRepos.isEmpty {
+                    Text("Add a repo in Settings to start watching.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+                } else if filteredActive.isEmpty && filteredRecent.isEmpty {
+                    Text(filterEvent.isEmpty ? "No runs you triggered yet." : "No \(filterEvent) runs.")
+                        .font(.callout).foregroundStyle(.secondary).padding(.vertical, 4)
+                } else {
                     if !filteredActive.isEmpty {
                         section("In progress", runs: filteredActive)
                     }
@@ -68,19 +68,16 @@ struct MenuContentView: View {
 
             Divider()
 
-            VStack(spacing: 4) {
-                HStack {
-                    Button("Settings") { showSettings = true }
-                    Spacer()
-                    Button("Quit") { NSApplication.shared.terminate(nil) }
-                }
-                .buttonStyle(.borderless)
+            HStack {
+                Button("Settings") { showSettings = true }
                 if let t = monitor.lastPolledAt {
-                    Text("Updated \(timeAgo(t))")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity)
+                    Text("· Updated \(timeAgo(t))")
+                        .foregroundStyle(.tertiary)
                 }
+                Spacer()
+                Button("Quit") { NSApplication.shared.terminate(nil) }
             }
+            .buttonStyle(.borderless)
         }
     }
 
