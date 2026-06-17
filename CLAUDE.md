@@ -5,29 +5,33 @@ macOS menubar app (Apple Silicon, macOS 13+). Polls GitHub Actions runs triggere
 
 ## Build
 ```sh
-bash build.sh
+make run      # build + launch
+make build    # build only
+make install  # build + copy to /Applications
+bash build.sh # legacy single-script alternative (builds + launches)
 ```
 Produces `Gheen.app/` (excluded from git), ad-hoc signed. Requires `swiftc` + `codesign` (Xcode CLI tools) and `gh` authenticated.
 
 ## Language / stack
 - Swift 5 language mode (`-swift-version 5`), `-target arm64-apple-macosx13.0`
 - SwiftUI `MenuBarExtra` (`.window` style), `UserNotifications`, `AppKit`
-- No Package.swift / `.xcodeproj` — single `swiftc` invocation in `build.sh`
+- No Package.swift / `.xcodeproj` — single `swiftc` invocation in `build.sh` / `Makefile`
 - Framework flags: `-framework SwiftUI -framework AppKit -framework UserNotifications`
 
 ## File layout
 ```
 Sources/Gheen/
   GheenApp.swift          @main App, MenuBarExtra, boots Monitor + NotificationManager
-  Models.swift            Run: Codable, runKey = "databaseId#attempt"
+  Models.swift            Run: Codable, runKey = "databaseId#attempt", eventLabel, isPR, repoName, timeAgo
   GitHubClient.swift      actor; resolves gh path once; Process arg-array (no shell)
-  Monitor.swift           @MainActor ObservableObject; poll loop, diff, notification emit
+  Monitor.swift           @MainActor ObservableObject; poll loop, diff, notification emit, exponential backoff
   NotificationManager.swift  UNUserNotificationCenter delegate; click → NSWorkspace.open
   SettingsStore.swift     UserDefaults: repos, interval, ghPath, notifiedKeys
-  MenuContentView.swift   dropdown UI (active / recent / error / settings / quit)
+  MenuContentView.swift   dropdown UI (filter tabs, active / recent / error / settings / quit)
   SettingsView.swift      add/remove repos, interval picker, gh path override
 Resources/
   Info.plist              CFBundleIdentifier=com.amree.gheen, LSUIElement=true
+Makefile                  build / run / clean / install targets
 docs/
   DESIGN.md               Full design doc + 3-round Claude↔Codex review history
 ```
@@ -45,6 +49,10 @@ docs/
 - Poll cursor = previous poll **start time** (not finish time) — prevents missing short runs that complete mid-request
 - `isPolling` guard skips overlapping timer ticks; 20s per-process timeout kills hung `gh`
 - First poll = baseline: already-finished runs recorded to `notifiedKeys`, never notified
+- **Exponential backoff**: idle polls (no active runs) double the interval each cycle, capped at 10 min. Resets on dropdown open, active run detected, or Settings save
+- **Event-aware rows**: PR runs show branch name (bold) + repo · workflow; non-PR runs show workflow name (bold) + repo · branch · event. Right-aligned `timeAgo` on every row. Hover tooltip shows PR title
+- **Dynamic filter tabs**: All / PR / Push / Manual etc — only shows tabs for event types present in current run list
+- Menubar icons: `circle` idle, `circle.dotted` active, `circle.fill` red on unacked failure
 
 ## What NOT to do
 - Don't add per-run `gh run view` polling — list + diff is intentionally the only mechanism
