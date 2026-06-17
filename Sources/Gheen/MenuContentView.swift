@@ -48,16 +48,23 @@ struct MenuContentView: View {
 
             Divider()
 
-            ScrollView {
-                if settings.watchedRepos.isEmpty {
-                    Text("Add a repo in Settings to start watching.")
-                        .font(.callout).foregroundStyle(.secondary)
-                        .padding(.vertical, 4)
-                } else {
-                    runSections
+            if settings.watchedRepos.isEmpty {
+                Text("Add a repo in Settings to start watching.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .padding(.vertical, 4)
+            } else if filteredActive.isEmpty && filteredRecent.isEmpty {
+                Text(filterEvent.isEmpty ? "No runs you triggered yet." : "No \(filterEvent) runs.")
+                    .font(.callout).foregroundStyle(.secondary).padding(.vertical, 4)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !filteredActive.isEmpty {
+                        section("In progress", runs: filteredActive)
+                    }
+                    if !filteredRecent.isEmpty {
+                        section("Recently finished", runs: filteredRecent)
+                    }
                 }
             }
-            .frame(maxHeight: 400)
 
             Divider()
 
@@ -95,21 +102,6 @@ struct MenuContentView: View {
     private var filteredRecent: [Run] {
         filterEvent.isEmpty ? monitor.recentRuns
             : monitor.recentRuns.filter { $0.eventLabel == filterEvent }
-    }
-
-    @ViewBuilder
-    private var runSections: some View {
-        if filteredActive.isEmpty && filteredRecent.isEmpty {
-            Text(filterEvent.isEmpty ? "No runs you triggered yet." : "No \(filterEvent) runs.")
-                .font(.callout).foregroundStyle(.secondary).padding(.vertical, 4)
-        }
-
-        if !filteredActive.isEmpty {
-            section("In progress", runs: filteredActive)
-        }
-        if !filteredRecent.isEmpty {
-            section("Recently finished", runs: filteredRecent)
-        }
     }
 
     private func timeAgo(_ date: Date) -> String {
