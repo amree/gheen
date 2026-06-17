@@ -23,8 +23,14 @@ struct GheenApp: App {
                 .environmentObject(settings)
                 .environmentObject(monitor)
         } label: {
-            Image(systemName: monitor.iconName)
-                .foregroundStyle(monitor.aggregate == .failure ? Color.red : Color.primary)
+            HStack(spacing: 3) {
+                Image(systemName: monitor.iconName)
+                    .foregroundStyle(monitor.aggregate == .failure ? Color.red : Color.primary)
+                if !monitor.activeRuns.isEmpty {
+                    Text("\(monitor.activeRuns.count)")
+                        .font(.system(size: 11, weight: .medium))
+                }
+            }
         }
         .menuBarExtraStyle(.window)
     }

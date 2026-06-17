@@ -48,13 +48,16 @@ struct MenuContentView: View {
 
             Divider()
 
-            if settings.watchedRepos.isEmpty {
-                Text("Add a repo in Settings to start watching.")
-                    .font(.callout).foregroundStyle(.secondary)
-                    .padding(.vertical, 4)
-            } else {
-                runSections
+            ScrollView {
+                if settings.watchedRepos.isEmpty {
+                    Text("Add a repo in Settings to start watching.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+                } else {
+                    runSections
+                }
             }
+            .frame(maxHeight: 400)
 
             Divider()
 
