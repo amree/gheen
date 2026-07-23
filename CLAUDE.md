@@ -15,7 +15,7 @@ Produces `Gheen.app/` (excluded from git), ad-hoc signed. Requires `swiftc` + `c
 ## Language / stack
 - Swift 5 language mode (`-swift-version 5`), `-target arm64-apple-macosx13.0`
 - SwiftUI `MenuBarExtra` (`.window` style), `UserNotifications`, `AppKit`
-- No Package.swift / `.xcodeproj` — single `swiftc` invocation in `build.sh` / `Makefile`
+- No `.xcodeproj` — single `swiftc` invocation in `build.sh` / `Makefile`. `Package.swift` exists for SourceKit/IDE type resolution only (not used to build)
 - Framework flags: `-framework SwiftUI -framework AppKit -framework UserNotifications`
 
 ## File layout
@@ -50,8 +50,9 @@ docs/
 - `isPolling` guard skips overlapping timer ticks; 20s per-process timeout kills hung `gh`
 - First poll = baseline: already-finished runs recorded to `notifiedKeys`, never notified
 - **Exponential backoff**: idle polls (no active runs) double the interval each cycle, capped at 10 min. Resets on dropdown open, active run detected, or Settings save
-- **Event-aware rows**: PR runs show branch name (bold) + repo · workflow; non-PR runs show workflow name (bold) + repo · branch · event. Right-aligned `timeAgo` on every row. Hover tooltip shows PR title
-- **Dynamic filter tabs**: All / PR / Push / Manual etc — only shows tabs for event types present in current run list
+- **Event-aware rows**: PR runs show branch name (bold) + repo · workflow; non-PR runs show run display title (bold) + repo · branch · workflow. Right-aligned `timeAgo` on every row. Hover tooltip shows PR title
+- **Static filter tabs**: fixed All / PR / Push / Manual segmented control, always shown; filters run list by `eventLabel`
+- **Notifications**: title = conclusion emoji + run display title; body = repo · branch · workflow
 - Menubar icons: `circle` idle, `circle.dotted` active, `circle.fill` red on unacked failure
 
 ## What NOT to do
