@@ -262,10 +262,10 @@ final class Monitor: ObservableObject {
     }
 
     private func notificationTitle(_ run: Run) -> String {
-        "\(run.conclusionEmoji) \(run.workflowName)"
+        "\(run.conclusionEmoji) \(run.displayTitle)"
     }
 
     private func notificationBody(_ run: Run) -> String {
-        "\(run.repo) · \(run.headBranch)\n\(run.displayTitle)"
+        "\(run.repo) · \(run.headBranch) · \(run.workflowName)"
     }
 }

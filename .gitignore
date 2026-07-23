@@ -1,6 +1,7 @@
 # Build output
 Gheen.app/
 *.dSYM/
+.build/
 
 # macOS
 .DS_Store
