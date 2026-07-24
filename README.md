@@ -4,6 +4,8 @@ A tiny macOS menubar app that notifies you when a GitHub Actions run **you trigg
 
 It reuses your existing `gh` CLI login — no separate auth, no tokens to manage.
 
+![Gheen dropdown](screenshot.png)
+
 ## Prerequisites
 
 - Apple Silicon Mac, macOS 13+
