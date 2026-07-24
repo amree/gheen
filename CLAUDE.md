@@ -32,8 +32,6 @@ Sources/Gheen/
 Resources/
   Info.plist              CFBundleIdentifier=com.amree.gheen, LSUIElement=true
 Makefile                  build / run / clean / install targets
-docs/
-  DESIGN.md               Full design doc + 3-round Claude↔Codex review history
 ```
 
 ## Key constraints (MVP, intentional)
