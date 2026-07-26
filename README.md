@@ -78,7 +78,15 @@ Every `gh` call is logged to `~/Library/Logs/Gheen/commands.log` (last 100 kept)
 2026-07-26 16:49:14  gh run list -R owner/repo -u you -L 100 --json …  (3.76s, exit 0)
 ```
 
-Each line records the local time, command, duration, and exit status (or `timeout`). Gaps between timestamps tell you the poll loop stalled. Open it from **Settings → Open Command Log**.
+Each line records the local time, command, duration, and exit status (or `timeout`). Polls that make no `gh` call are logged too, so a gap between timestamps means a real stall — not one of these:
+
+```
+2026-07-26 16:54:52  idle — next poll in 120s
+2026-07-26 16:55:10  idle — no repos watched
+2026-07-26 16:55:41  poll skipped — previous still running
+```
+
+Open the log from **Settings → Open Command Log**.
 
 ## MVP limitations
 

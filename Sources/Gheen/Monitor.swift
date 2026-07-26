@@ -105,7 +105,10 @@ final class Monitor: ObservableObject {
     // MARK: - Polling
 
     func poll() async {
-        guard !isPolling else { return }
+        guard !isPolling else {
+            CommandLog.append("poll skipped — previous still running")
+            return
+        }
         isPolling = true
         defer { isPolling = false }
 
@@ -125,6 +128,7 @@ final class Monitor: ObservableObject {
 
         let repos = settings.watchedRepos
         guard !repos.isEmpty else {
+            CommandLog.append("idle — no repos watched")
             activeRuns = []
             recentRuns = []
             errorBanner = nil
@@ -159,6 +163,10 @@ final class Monitor: ObservableObject {
         if newMultiplier != backoffMultiplier {
             backoffMultiplier = newMultiplier
             scheduleTimer()
+            if activeRuns.isEmpty {
+                let interval = min(settings.pollInterval * newMultiplier, maxBackoffInterval)
+                CommandLog.append("idle — next poll in \(Int(interval))s")
+            }
         }
     }
 
