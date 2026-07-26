@@ -25,6 +25,11 @@ enum GitHubError: LocalizedError, Sendable {
 actor GitHubClient {
     private var cachedGhPath: String?
     private let overridePath: String?
+    private let logDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
 
     init(overridePath: String?) {
         let trimmed = overridePath?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -95,6 +100,7 @@ actor GitHubClient {
         proc.standardOutput = outPipe
         proc.standardError = errPipe
 
+        let start = Date()
         do { try proc.run() } catch { throw GitHubError.ghNotFound }
 
         // Kill the process if it overruns the timeout.
@@ -113,6 +119,10 @@ actor GitHubClient {
         proc.waitUntilExit()
         timeoutTask.cancel()
 
+        let status = proc.terminationReason == .uncaughtSignal
+            ? "timeout" : "exit \(proc.terminationStatus)"
+        logCommand(args, start: start, duration: Date().timeIntervalSince(start), status: status)
+
         if proc.terminationReason == .uncaughtSignal {
             throw GitHubError.timeout
         }
@@ -127,6 +137,33 @@ actor GitHubClient {
             throw GitHubError.commandFailed(msg)
         }
         return out
+    }
+
+    // MARK: - Command log
+
+    /// Location of the command log — shared with the Settings "open log" button.
+    nonisolated static let logFileURL: URL? = FileManager.default
+        .urls(for: .libraryDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("Logs/Gheen/commands.log")
+
+    /// Append one line per executed `gh` call to ~/Library/Logs/Gheen/commands.log,
+    /// keeping only the last 100. Timestamp gaps reveal a stalled poll loop.
+    private func logCommand(_ args: [String], start: Date, duration: TimeInterval, status: String) {
+        // Collapse the constant `--json <fields>` blob — identical every line, pure noise.
+        let cmd = ("gh " + args.joined(separator: " "))
+            .replacingOccurrences(of: "--json \\S+", with: "--json …", options: .regularExpression)
+        let line = "\(logDateFormatter.string(from: start))  \(cmd)"
+            + "  (\(String(format: "%.2f", duration))s, \(status))"
+
+        guard let file = Self.logFileURL else { return }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        var lines = (try? String(contentsOf: file, encoding: .utf8))?
+            .split(separator: "\n", omittingEmptySubsequences: true).map(String.init) ?? []
+        lines.append(line)
+        if lines.count > 100 { lines = Array(lines.suffix(100)) }
+        try? (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
     }
 
     // MARK: - API

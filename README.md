@@ -70,6 +70,16 @@ The target Mac still needs `gh` installed and authenticated (`gh auth login`).
 - Menubar icon: `○` idle / `◌` active / `●` red (failure stays red until you open the dropdown).
 - PR rows show branch name + workflow; push/manual rows show the run's display title + branch + workflow. Each row shows a relative time (e.g. `5m ago`) on the right.
 
+## Command log
+
+Every `gh` call is logged to `~/Library/Logs/Gheen/commands.log` (last 100 kept), one line each:
+
+```
+2026-07-26 16:49:14  gh run list -R owner/repo -u you -L 100 --json …  (3.76s, exit 0)
+```
+
+Each line records the local time, command, duration, and exit status (or `timeout`). Gaps between timestamps tell you the poll loop stalled. Open it from **Settings → Open Command Log**.
+
 ## MVP limitations
 
 - **Apple Silicon only** (`-target arm64-apple-macosx13.0`). Universal binary is a future step.

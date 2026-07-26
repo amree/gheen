@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
@@ -68,6 +69,21 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { monitor.rebuildClient() }
             }
+
+            Divider()
+
+            Button("Open Command Log", action: openLog)
+                .buttonStyle(.borderless)
+        }
+    }
+
+    /// Opens the gh command log, or reveals its folder if no poll has logged yet.
+    private func openLog() {
+        guard let url = GitHubClient.logFileURL else { return }
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.open(url)
+        } else {
+            NSWorkspace.shared.open(url.deletingLastPathComponent())
         }
     }
 
