@@ -67,7 +67,7 @@ The target Mac still needs `gh` installed and authenticated (`gh auth login`).
 - Polls `gh run list -R <repo> -u <you> -L 100 --json ...` every 60s (configurable).
 - **Exponential backoff when idle**: if no active runs are detected, the poll interval doubles each cycle (60s → 120s → 240s → … → 10 min cap). Opens back to the configured interval when you click the menubar icon or an active run appears.
 - Notifies on the active→completed transition, keyed by `databaseId#attempt` so reruns notify again; the first poll is a silent baseline.
-- Dependabot version-update runs (event `dynamic`) are filtered out — GitHub's `-u` actor filter returns them even though you didn't trigger them.
+- Dependabot version-update runs (event `dynamic`) and scheduled cron runs (event `schedule`) are filtered out — GitHub's `-u` actor filter returns them even though you didn't trigger them.
 - Menubar icon: `○` idle / `◌` active / `●` red (failure stays red until you open the dropdown).
 - PR rows show branch name + workflow; push/manual rows show the run's display title + branch + workflow. Each row shows a relative time (e.g. `5m ago`) on the right.
 

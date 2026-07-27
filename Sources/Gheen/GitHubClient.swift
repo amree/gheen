@@ -168,11 +168,13 @@ actor GitHubClient {
         ])
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        // GitHub's `-u <login>` actor filter leaks Dependabot version-update runs
-        // (event "dynamic", actor dependabot[bot]) even though you didn't trigger
-        // them; drop them so the list stays "runs I triggered".
+        // GitHub's `-u <login>` actor filter leaks runs the user didn't trigger:
+        // Dependabot version updates (event "dynamic", actor dependabot[bot]) and
+        // scheduled cron runs (event "schedule", actor = whoever owns the schedule).
+        // Drop those events so the list stays "runs I triggered".
+        let leakedEvents: Set<String> = ["dynamic", "schedule"]
         var runs = try decoder.decode([Run].self, from: data)
-            .filter { $0.event != "dynamic" }
+            .filter { !leakedEvents.contains($0.event) }
         for i in runs.indices { runs[i].repo = repo }
         return runs
     }
