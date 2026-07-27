@@ -55,12 +55,23 @@ struct MenuContentView: View {
                     Text(filterEvent.isEmpty ? "No runs you triggered yet." : "No \(filterEvent) runs.")
                         .font(.callout).foregroundStyle(.secondary).padding(.vertical, 4)
                 } else {
-                    if !filteredActive.isEmpty {
-                        section("In progress", runs: filteredActive)
+                    // Fixed-height scroll region: a bare ScrollView has no intrinsic
+                    // height and collapses in the auto-sizing MenuBarExtra window, and
+                    // measuring content to size it creates a layout feedback loop. A
+                    // fixed height is predictable — scrolls when long, some blank space
+                    // when short.
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if !filteredActive.isEmpty {
+                                section("In progress", runs: filteredActive)
+                            }
+                            if !filteredRecent.isEmpty {
+                                section("Recently finished", runs: filteredRecent)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    if !filteredRecent.isEmpty {
-                        section("Recently finished", runs: filteredRecent)
-                    }
+                    .frame(height: 420)
                 }
             }
 
