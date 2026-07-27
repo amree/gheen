@@ -48,7 +48,7 @@ Makefile                  build / run / clean / install targets
 - Poll cursor = previous poll **start time** (not finish time) — prevents missing short runs that complete mid-request
 - `isPolling` guard skips overlapping timer ticks; 20s per-process timeout kills hung `gh`
 - First poll = baseline: already-finished runs recorded to `notifiedKeys`, never notified
-- **Exponential backoff**: idle polls (no active runs) double the interval each cycle, capped at 10 min. Resets on dropdown open, active run detected, or Settings save
+- **Exponential backoff**: idle polls (no active runs) double the interval each cycle, capped at 2 min (`maxBackoffInterval`). Cap kept low so a newly-started run is detected promptly — GitHub's 5000/hr limit makes idle API savings negligible. Resets on dropdown open, active run detected, or Settings save
 - **Event-aware rows**: PR runs show branch name (bold) + repo · workflow; non-PR runs show run display title (bold) + repo · branch · workflow. Right-aligned `timeAgo` on every row. Hover tooltip shows PR title
 - **Static filter tabs**: fixed All / PR / Push / Manual segmented control, always shown; filters run list by `eventLabel`
 - **Notifications**: title = conclusion emoji + run display title; body = repo · branch · workflow

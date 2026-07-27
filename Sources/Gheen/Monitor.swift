@@ -22,7 +22,7 @@ final class Monitor: ObservableObject {
     private var isPolling = false
     private var hasUnackedFailure = false
     private var backoffMultiplier: Double = 1.0
-    private let maxBackoffInterval: TimeInterval = 600
+    private let maxBackoffInterval: TimeInterval = 120
 
     // Per-repo state: baseline, active-key set, and poll-start cursor are all
     // scoped to each repo independently. This prevents a failed repo from
