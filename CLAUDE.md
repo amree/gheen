@@ -27,6 +27,7 @@ Sources/Gheen/
   Monitor.swift           @MainActor ObservableObject; poll loop, diff, notification emit, exponential backoff
   NotificationManager.swift  UNUserNotificationCenter delegate; click → NSWorkspace.open
   SettingsStore.swift     UserDefaults: repos, interval, ghPath, notifiedKeys
+  CommandLog.swift        rolling ~/Library/Logs/Gheen/commands.log (last 100); serial-queue writer shared by GitHubClient + Monitor
   MenuContentView.swift   dropdown UI (filter tabs, active / recent / error / settings / quit)
   SettingsView.swift      add/remove repos, interval picker, gh path override
 Resources/
@@ -51,6 +52,8 @@ Makefile                  build / run / clean / install targets
 - **Event-aware rows**: PR runs show branch name (bold) + repo · workflow; non-PR runs show run display title (bold) + repo · branch · workflow. Right-aligned `timeAgo` on every row. Hover tooltip shows PR title
 - **Static filter tabs**: fixed All / PR / Push / Manual segmented control, always shown; filters run list by `eventLabel`
 - **Notifications**: title = conclusion emoji + run display title; body = repo · branch · workflow
+- **Dependabot filter**: GitHub's `-u <login>` actor filter leaks Dependabot version-update runs (event `dynamic`, actor `dependabot[bot]`) even though the user didn't trigger them; `listRuns` drops `event == "dynamic"` so the list stays "runs I triggered"
+- **Command log**: every `gh` call + no-gh-call poll outcomes (idle backoff, no repos, skipped tick) logged to `~/Library/Logs/Gheen/commands.log` (last 100) via `CommandLog`; opened from Settings. Gap between timestamps = real stall
 - Menubar icons: `circle` idle, `circle.dotted` active, `circle.fill` red on unacked failure
 
 ## What NOT to do

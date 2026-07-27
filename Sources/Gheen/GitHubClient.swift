@@ -168,7 +168,11 @@ actor GitHubClient {
         ])
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        // GitHub's `-u <login>` actor filter leaks Dependabot version-update runs
+        // (event "dynamic", actor dependabot[bot]) even though you didn't trigger
+        // them; drop them so the list stays "runs I triggered".
         var runs = try decoder.decode([Run].self, from: data)
+            .filter { $0.event != "dynamic" }
         for i in runs.indices { runs[i].repo = repo }
         return runs
     }
