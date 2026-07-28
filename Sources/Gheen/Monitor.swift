@@ -20,6 +20,13 @@ final class Monitor: ObservableObject {
 
     private var timer: Timer?
     private var isPolling = false
+    private var currentPollStartedAt: Date?
+    private var pollGeneration = 0
+    // Watchdog: if a poll stays in flight longer than this, it's wedged on a
+    // blocking call the GitHubClient timeouts didn't catch (login-shell path
+    // resolution, or a gh child holding the output pipe open). Abandon it and
+    // start fresh so polling — and notifications — recover.
+    private let maxPollDuration: TimeInterval = 60
     private var hasUnackedFailure = false
     private var backoffMultiplier: Double = 1.0
     private let maxBackoffInterval: TimeInterval = 120
@@ -105,12 +112,32 @@ final class Monitor: ObservableObject {
     // MARK: - Polling
 
     func poll() async {
-        guard !isPolling else {
-            CommandLog.append("poll skipped — previous still running")
-            return
+        if isPolling {
+            // Normally skip an overlapping tick — but if the in-flight poll has been
+            // running too long it's wedged; abandon it and fall through to a fresh
+            // poll. Bumping the generation makes the stuck poll bail before it
+            // mutates any state, should it ever unblock.
+            if let started = currentPollStartedAt,
+               Date().timeIntervalSince(started) > maxPollDuration {
+                pollGeneration &+= 1
+                CommandLog.append(
+                    "poll watchdog — abandoning stuck poll (\(Int(Date().timeIntervalSince(started)))s)")
+            } else {
+                CommandLog.append("poll skipped — previous still running")
+                return
+            }
         }
         isPolling = true
-        defer { isPolling = false }
+        let gen = pollGeneration
+        currentPollStartedAt = Date()
+        defer {
+            // Only clear if we're still current — a resumed, abandoned poll must not
+            // reset the guard the fresh poll is holding.
+            if gen == pollGeneration {
+                isPolling = false
+                currentPollStartedAt = nil
+            }
+        }
 
         let pollStart = Date()
 
@@ -152,6 +179,10 @@ final class Monitor: ObservableObject {
             setError(error)
             return
         }
+        // If the watchdog abandoned this poll while it was awaiting gh, bail before
+        // touching any shared state or firing stale notifications.
+        guard gen == pollGeneration else { return }
+
         errorBanner = repoErrors.isEmpty ? nil
             : "Some repos failed: \(repoErrors.keys.joined(separator: ", "))"
 
