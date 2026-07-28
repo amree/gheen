@@ -98,27 +98,37 @@ actor GitHubClient {
         let start = Date()
         do { try proc.run() } catch { throw GitHubError.ghNotFound }
 
-        // Kill the process if it overruns the timeout.
-        let timeoutTask = Task {
-            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-            if proc.isRunning { proc.terminate() }
-        }
-
         // Read pipes off-thread to avoid deadlock when output exceeds the buffer.
         let outHandle = outPipe.fileHandleForReading
         let errHandle = errPipe.fileHandleForReading
         async let outData = Task.detached { outHandle.readDataToEndOfFile() }.value
         async let errData = Task.detached { errHandle.readDataToEndOfFile() }.value
+
+        // Wait for exit, but never longer than `timeout`. A gh stuck in a syscall can
+        // ignore SIGTERM, which then wedges the pipe reads forever and never resets
+        // the caller's isPolling guard. On timeout SIGKILL (uncatchable) so the
+        // process dies, its pipe write-ends close, the reads unblock, and this call
+        // always returns. Kill inside the group so the waitUntilExit child unblocks
+        // before the group awaits it.
+        let exitedInTime = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { proc.waitUntilExit(); return true }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return false
+            }
+            let first = await group.next() ?? false
+            if !first { kill(proc.processIdentifier, SIGKILL) }
+            group.cancelAll()
+            return first
+        }
+
         let out = await outData
         let err = await errData
-        proc.waitUntilExit()
-        timeoutTask.cancel()
 
-        let status = proc.terminationReason == .uncaughtSignal
-            ? "timeout" : "exit \(proc.terminationStatus)"
+        let status = exitedInTime ? "exit \(proc.terminationStatus)" : "timeout"
         logCommand(args, start: start, duration: Date().timeIntervalSince(start), status: status)
 
-        if proc.terminationReason == .uncaughtSignal {
+        if !exitedInTime {
             throw GitHubError.timeout
         }
         if proc.terminationStatus != 0 {
