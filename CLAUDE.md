@@ -46,14 +46,15 @@ Makefile                  build / run / clean / install targets
 - `gh` path resolved once at startup via `zsh -lc 'command -v gh'` + candidate fallbacks; cached; user-overridable in Settings
 - Notification keyed by `databaseId#attempt` so reruns fire a new notification
 - Poll cursor = previous poll **start time** (not finish time) — prevents missing short runs that complete mid-request
-- `isPolling` guard skips overlapping timer ticks; 20s per-process timeout kills hung `gh`
+- **Subprocess safety** (`GitHubClient.runProcess`): all `gh`/shell calls go through one helper that reads stdout/stderr via non-blocking `readabilityHandler`s (never blocks a thread on a pipe — a `gh` child inheriting stdout used to wedge `readDataToEndOfFile` forever), completes on stdout EOF or a hard timeout, SIGKILLs on timeout, and reaps on a detached task. Used by both `run()` and the login-shell path probe (both bounded)
+- `isPolling` guard skips overlapping timer ticks. **Poll watchdog**: if an in-flight poll runs > `maxPollDuration` (60s) it's abandoned (generation-guarded so a resumed stale poll can't fire notifications) and a fresh poll starts — last-resort backstop so no hang can permanently wedge polling
 - First poll = baseline: already-finished runs recorded to `notifiedKeys`, never notified
 - **Exponential backoff**: idle polls (no active runs) double the interval each cycle, capped at 2 min (`maxBackoffInterval`). Cap kept low so a newly-started run is detected promptly — GitHub's 5000/hr limit makes idle API savings negligible. Resets on dropdown open, active run detected, or Settings save
 - **Event-aware rows**: PR runs show branch name (bold) + repo · workflow; non-PR runs show run display title (bold) + repo · branch · workflow. Right-aligned `timeAgo` on every row. Hover tooltip shows PR title
 - **Static filter tabs**: fixed All / PR / Push / Manual segmented control, always shown; filters run list by `eventLabel`
 - **Notifications**: title = conclusion emoji + run display title; body = repo · branch · workflow
 - **Leaked-event filter**: GitHub's `-u <login>` actor filter leaks runs the user didn't trigger — Dependabot version updates (event `dynamic`, actor `dependabot[bot]`) and scheduled cron runs (event `schedule`, actor = schedule owner). `listRuns` drops `event ∈ {dynamic, schedule}` so the list stays "runs I triggered". Blocklist (not allowlist) — never hides a genuinely user-triggered run
-- **Command log**: every `gh` call + no-gh-call poll outcomes (idle backoff, no repos, skipped tick) logged to `~/Library/Logs/Gheen/commands.log` (last 100) via `CommandLog`; opened from Settings. Gap between timestamps = real stall
+- **Command log**: `CommandLog` writes to `~/Library/Logs/Gheen/commands.log` (last 100, serial queue), opened from Settings. Records every `gh` call (with duration + exit status, and the stderr reason folded in on failure or `timeout`), plus no-gh-call events: `monitor started`, idle backoff, no repos, skipped tick, `poll watchdog — abandoning stuck poll`, and `error:` lines. Gap between timestamps = real stall
 - Menubar icons: `circle` idle, `circle.dotted` active, `circle.fill` red on unacked failure
 
 ## What NOT to do

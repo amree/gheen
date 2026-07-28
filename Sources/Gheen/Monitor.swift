@@ -60,6 +60,7 @@ final class Monitor: ObservableObject {
     // MARK: - Lifecycle
 
     func start() {
+        CommandLog.append("monitor started — \(settings.watchedRepos.count) repo(s), interval \(Int(settings.pollInterval))s")
         if login == nil { login = settings.cachedLogin }
         Task { await poll() }
         scheduleTimer()
@@ -289,7 +290,9 @@ final class Monitor: ObservableObject {
     }
 
     private func setError(_ error: Error) {
-        errorBanner = message(for: error)
+        let msg = message(for: error)
+        CommandLog.append("error: \(msg)")
+        errorBanner = msg
     }
 
     private func message(for error: Error) -> String {

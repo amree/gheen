@@ -45,7 +45,7 @@ actor GitHubClient {
             return o
         }
         // Login shell inherits the user's full PATH (GUI apps do not).
-        if let resolved = resolveViaLoginShell(),
+        if let resolved = await resolveViaLoginShell(),
            FileManager.default.isExecutableFile(atPath: resolved) {
             cachedGhPath = resolved
             return resolved
@@ -60,88 +60,144 @@ actor GitHubClient {
     }
 
     /// Constant command string (no user data) → safe to pass through a shell.
-    private func resolveViaLoginShell() -> String? {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        proc.arguments = ["-lc", "command -v gh"]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = Pipe()
-        do { try proc.run() } catch { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        proc.waitUntilExit()
-        guard proc.terminationStatus == 0 else { return nil }
-        let s = String(data: data, encoding: .utf8)?
+    private func resolveViaLoginShell() async -> String? {
+        guard let result = await runProcess("/bin/zsh", ["-lc", "command -v gh"], timeout: 5),
+              !result.timedOut, result.status == 0 else { return nil }
+        let s = String(data: result.out, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (s?.isEmpty == false) ? s : nil
     }
 
-    // MARK: - Process runner (arg array, with timeout)
+    // MARK: - Process runner (non-blocking reads, hard timeout)
 
-    private func run(_ args: [String], timeout: TimeInterval = 20) async throws -> Data {
-        let path = try await ghPath()
+    /// Thread-safe accumulator for a subprocess's piped output, shared between the
+    /// GCD readability handlers and the awaiting caller. Coordinates a single
+    /// continuation resume from whichever finishes first: stdout EOF or the timeout.
+    private final class OutputCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var out = Data()
+        private var err = Data()
+        private var cont: CheckedContinuation<Bool, Never>?
+        private var finished = false
+        private var timedOutValue = false
+
+        func appendOut(_ d: Data) { lock.lock(); out.append(d); lock.unlock() }
+        func appendErr(_ d: Data) { lock.lock(); err.append(d); lock.unlock() }
+
+        /// Register the awaiting continuation; if completion already fired, resume now.
+        func attach(_ c: CheckedContinuation<Bool, Never>) {
+            lock.lock()
+            if finished { let v = timedOutValue; lock.unlock(); c.resume(returning: v); return }
+            cont = c; lock.unlock()
+        }
+
+        /// Resume exactly once (EOF → false, timeout → true).
+        func finish(timedOut: Bool) {
+            lock.lock()
+            if finished { lock.unlock(); return }
+            finished = true; timedOutValue = timedOut
+            let c = cont; cont = nil; lock.unlock()
+            c?.resume(returning: timedOut)
+        }
+
+        var collected: (out: Data, err: Data) {
+            lock.lock(); defer { lock.unlock() }; return (out, err)
+        }
+    }
+
+    /// Run a subprocess with a hard timeout, reading output via non-blocking
+    /// readability handlers so no thread ever blocks on a pipe. (A blocking read is
+    /// what wedged polling: a gh child inheriting stdout keeps the write-end open, so
+    /// `readDataToEndOfFile` never returns.) Completes on stdout EOF — all output
+    /// collected — or `timeout`, whichever first; on timeout SIGKILL. The process is
+    /// reaped on a detached task so a lingering process can't block the actor.
+    /// Returns nil only if the process fails to launch.
+    private func runProcess(_ executable: String, _ arguments: [String],
+                            environment: [String: String]? = nil,
+                            timeout: TimeInterval)
+        async -> (out: Data, err: Data, status: Int32, timedOut: Bool)? {
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: path)
-        proc.arguments = args
-
-        var env = ProcessInfo.processInfo.environment
-        env["GH_NO_UPDATE_NOTIFIER"] = "1"
-        env["GH_PAGER"] = "cat"
-        env["GH_PROMPT_DISABLED"] = "1"
-        proc.environment = env
+        proc.executableURL = URL(fileURLWithPath: executable)
+        proc.arguments = arguments
+        if let environment { proc.environment = environment }
 
         let outPipe = Pipe()
         let errPipe = Pipe()
         proc.standardOutput = outPipe
         proc.standardError = errPipe
 
-        let start = Date()
-        do { try proc.run() } catch { throw GitHubError.ghNotFound }
-
-        // Read pipes off-thread to avoid deadlock when output exceeds the buffer.
+        // Handlers set before launch so a large, fast writer can't fill the pipe
+        // buffer and stall before we start draining.
+        let collector = OutputCollector()
         let outHandle = outPipe.fileHandleForReading
         let errHandle = errPipe.fileHandleForReading
-        async let outData = Task.detached { outHandle.readDataToEndOfFile() }.value
-        async let errData = Task.detached { errHandle.readDataToEndOfFile() }.value
-
-        // Wait for exit, but never longer than `timeout`. A gh stuck in a syscall can
-        // ignore SIGTERM, which then wedges the pipe reads forever and never resets
-        // the caller's isPolling guard. On timeout SIGKILL (uncatchable) so the
-        // process dies, its pipe write-ends close, the reads unblock, and this call
-        // always returns. Kill inside the group so the waitUntilExit child unblocks
-        // before the group awaits it.
-        let exitedInTime = await withTaskGroup(of: Bool.self) { group in
-            group.addTask { proc.waitUntilExit(); return true }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return false
-            }
-            let first = await group.next() ?? false
-            if !first { kill(proc.processIdentifier, SIGKILL) }
-            group.cancelAll()
-            return first
+        outHandle.readabilityHandler = { h in
+            let d = h.availableData
+            if d.isEmpty { h.readabilityHandler = nil; collector.finish(timedOut: false) }
+            else { collector.appendOut(d) }
+        }
+        errHandle.readabilityHandler = { h in
+            let d = h.availableData
+            if d.isEmpty { h.readabilityHandler = nil } else { collector.appendErr(d) }
         }
 
-        let out = await outData
-        let err = await errData
+        do { try proc.run() } catch { return nil }
 
-        let status = exitedInTime ? "exit \(proc.terminationStatus)" : "timeout"
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+            collector.finish(timedOut: true)
+        }
+        let timedOut = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+            collector.attach(c)
+        }
+
+        if timedOut { kill(proc.processIdentifier, SIGKILL) }
+        // Reap off the actor; waitUntilExit is bounded by process lifetime (SIGKILL
+        // guarantees it on timeout), never by the pipes.
+        await Task.detached { proc.waitUntilExit() }.value
+        outHandle.readabilityHandler = nil
+        errHandle.readabilityHandler = nil
+
+        let (out, err) = collector.collected
+        return (out, err, proc.terminationStatus, timedOut)
+    }
+
+    private func run(_ args: [String], timeout: TimeInterval = 20) async throws -> Data {
+        let path = try await ghPath()
+        var env = ProcessInfo.processInfo.environment
+        env["GH_NO_UPDATE_NOTIFIER"] = "1"
+        env["GH_PAGER"] = "cat"
+        env["GH_PROMPT_DISABLED"] = "1"
+
+        let start = Date()
+        guard let result = await runProcess(path, args, environment: env, timeout: timeout) else {
+            throw GitHubError.ghNotFound
+        }
+
+        let errMsg = (String(data: result.err, encoding: .utf8) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Fold the failure reason into the log line so a future reader sees *why* a
+        // call failed (auth, network, rate limit), not just the exit code.
+        let status: String
+        if result.timedOut {
+            status = "timeout"
+        } else if result.status != 0 {
+            let reason = errMsg.replacingOccurrences(of: "\n", with: " ").prefix(140)
+            status = reason.isEmpty ? "exit \(result.status)" : "exit \(result.status): \(reason)"
+        } else {
+            status = "exit 0"
+        }
         logCommand(args, start: start, duration: Date().timeIntervalSince(start), status: status)
 
-        if !exitedInTime {
-            throw GitHubError.timeout
-        }
-        if proc.terminationStatus != 0 {
-            let msg = (String(data: err, encoding: .utf8) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let lower = msg.lowercased()
+        if result.timedOut { throw GitHubError.timeout }
+        if result.status != 0 {
+            let lower = errMsg.lowercased()
             if lower.contains("not logged") || lower.contains("authentication")
                 || lower.contains("gh auth login") {
                 throw GitHubError.notAuthenticated
             }
-            throw GitHubError.commandFailed(msg)
+            throw GitHubError.commandFailed(errMsg)
         }
-        return out
+        return result.out
     }
 
     // MARK: - Command log
