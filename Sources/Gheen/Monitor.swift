@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 enum Aggregate {
     case idle, active, failure
@@ -41,12 +42,40 @@ final class Monitor: ObservableObject {
         var prevPollStartedAt: Date?
     }
     private var repoStates: [String: RepoState] = [:]
+    private var sleepStart: Date?
 
     init(settings: SettingsStore, notifier: NotificationManager) {
         self.settings = settings
         self.notifier = notifier
         self.client = GitHubClient(
             overridePath: settings.ghPath.isEmpty ? nil : settings.ghPath)
+        observeSleepWake()
+    }
+
+    // MARK: - Sleep / wake
+
+    /// Logs sleep/wake explicitly (so a log gap has a documented cause instead of
+    /// looking like a stall) and forces an immediate, un-backed-off poll on wake —
+    /// belt-and-suspenders alongside the timer's own catch-up behavior on resume.
+    private func observeSleepWake() {
+        let center = NSWorkspace.shared.notificationCenter
+        center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.sleepStart = Date()
+                CommandLog.append("system sleeping")
+            }
+        }
+        center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let asleep = self.sleepStart.map { Int(Date().timeIntervalSince($0)) }
+                self.sleepStart = nil
+                CommandLog.append("system woke" + (asleep.map { " — asleep \($0)s" } ?? ""))
+                self.backoffMultiplier = 1.0
+                self.scheduleTimer()
+                Task { await self.poll() }
+            }
+        }
     }
 
     var iconName: String {
