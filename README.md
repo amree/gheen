@@ -4,7 +4,9 @@ A tiny macOS menubar app that notifies you when a GitHub Actions run **you trigg
 
 It reuses your existing `gh` CLI login — no separate auth, no tokens to manage.
 
-![Gheen dropdown](screenshot.png)
+| Dropdown | Notification |
+|---|---|
+| ![Gheen dropdown](screenshot.png) | ![Gheen notification](screenshot-notification.png) |
 
 ## Prerequisites
 
@@ -34,7 +36,7 @@ Gheen is ad-hoc signed (not notarized), so you can't distribute it via the App S
 # On the target Mac:
 xcode-select --install          # if not already done
 brew install gh && gh auth login
-git clone <your-repo> gheen && cd gheen
+git clone git@github.com:amree/gheen.git && cd gheen
 make run
 ```
 
