@@ -105,16 +105,46 @@ actor GitHubClient {
         }
     }
 
+    /// Signals once the process's `terminationHandler` fires, or once a hard
+    /// deadline passes — whichever first. Guards against `waitUntilExit()`
+    /// (and its non-blocking `terminationHandler` cousin) never firing: seen in
+    /// production as dozens of `Task.detached { proc.waitUntilExit() }` calls
+    /// parked forever on the cooperative thread pool after SIGKILL, starving the
+    /// whole app of threads and silently killing all polling.
+    private final class ExitWaiter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cont: CheckedContinuation<Bool, Never>?
+        private var finished = false
+        private var reapedValue = false
+
+        func finish(reaped: Bool) {
+            lock.lock()
+            if finished { lock.unlock(); return }
+            finished = true; reapedValue = reaped
+            let c = cont; cont = nil
+            lock.unlock()
+            c?.resume(returning: reaped)
+        }
+
+        func attach(_ c: CheckedContinuation<Bool, Never>) {
+            lock.lock()
+            if finished { let v = reapedValue; lock.unlock(); c.resume(returning: v); return }
+            cont = c; lock.unlock()
+        }
+    }
+
     /// Run a subprocess with a hard timeout, reading output via non-blocking
     /// readability handlers so no thread ever blocks on a pipe. (A blocking read is
     /// what wedged polling: a gh child inheriting stdout keeps the write-end open, so
     /// `readDataToEndOfFile` never returns.) Completes on stdout EOF — all output
-    /// collected — or `timeout`, whichever first; on timeout SIGKILL. The process is
-    /// reaped on a detached task so a lingering process can't block the actor.
+    /// collected — or `timeout`, whichever first; on timeout SIGKILL. Reaped via
+    /// `terminationHandler` (non-blocking) with its own hard deadline, so a lost
+    /// reap notification can't block a thread or hang this call forever.
     /// Returns nil only if the process fails to launch.
-    private func runProcess(_ executable: String, _ arguments: [String],
-                            environment: [String: String]? = nil,
-                            timeout: TimeInterval)
+    /// Internal (not private) so GheenTests can exercise it directly.
+    func runProcess(_ executable: String, _ arguments: [String],
+                     environment: [String: String]? = nil,
+                     timeout: TimeInterval)
         async -> (out: Data, err: Data, status: Int32, timedOut: Bool)? {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: executable)
@@ -141,6 +171,9 @@ actor GitHubClient {
             if d.isEmpty { h.readabilityHandler = nil } else { collector.appendErr(d) }
         }
 
+        let exitWaiter = ExitWaiter()
+        proc.terminationHandler = { _ in exitWaiter.finish(reaped: true) }
+
         do { try proc.run() } catch { return nil }
 
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
@@ -151,14 +184,22 @@ actor GitHubClient {
         }
 
         if timedOut { kill(proc.processIdentifier, SIGKILL) }
-        // Reap off the actor; waitUntilExit is bounded by process lifetime (SIGKILL
-        // guarantees it on timeout), never by the pipes.
-        await Task.detached { proc.waitUntilExit() }.value
+        // Non-blocking reap via terminationHandler — never a blocking waitUntilExit()
+        // on a cooperative-pool thread. A second deadline bounds the wait itself, in
+        // case the termination notification never arrives.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
+            exitWaiter.finish(reaped: false)
+        }
+        let reaped = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+            exitWaiter.attach(c)
+        }
         outHandle.readabilityHandler = nil
         errHandle.readabilityHandler = nil
 
         let (out, err) = collector.collected
-        return (out, err, proc.terminationStatus, timedOut)
+        // terminationStatus throws if the process never actually got reaped.
+        let status: Int32 = reaped ? proc.terminationStatus : -1
+        return (out, err, status, timedOut)
     }
 
     private func run(_ args: [String], timeout: TimeInterval = 20) async throws -> Data {

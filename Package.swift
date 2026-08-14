@@ -9,6 +9,11 @@ let package = Package(
         .executableTarget(
             name: "Gheen",
             path: "Sources/Gheen"
+        ),
+        .testTarget(
+            name: "GheenTests",
+            dependencies: ["Gheen"],
+            path: "Tests/GheenTests"
         )
     ]
 )
