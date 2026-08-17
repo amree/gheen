@@ -37,8 +37,8 @@ Makefile                  build / run / clean / install targets
 
 ## Key constraints (MVP, intentional)
 - Apple Silicon only — no universal binary yet
-- `-u <login>` scope: only runs the authenticated user triggered (no scheduled runs)
-- `-L 100`: runs beyond the latest 100 on a very busy repo may be missed
+- Scoped to `triggering_actor == <login>`: only runs the authenticated user actually triggered
+- `per_page=100`: runs beyond the latest 100 on a very busy repo may be missed
 - Red menubar icon clears on dropdown-open only (no success-based auto-clear)
 - Single `github.com` account
 
@@ -53,7 +53,7 @@ Makefile                  build / run / clean / install targets
 - **Event-aware rows**: PR runs show branch name (bold) + repo · workflow; non-PR runs show run display title (bold) + repo · branch · workflow. Right-aligned `timeAgo` on every row. Hover tooltip shows PR title
 - **Static filter tabs**: fixed All / PR / Push / Manual segmented control, always shown; filters run list by `eventLabel`
 - **Notifications**: title = conclusion emoji + run display title; body = repo · branch · workflow
-- **Leaked-event filter**: GitHub's `-u <login>` actor filter leaks runs the user didn't trigger — Dependabot version updates (event `dynamic`, actor `dependabot[bot]`) and scheduled cron runs (event `schedule`, actor = schedule owner). `listRuns` drops `event ∈ {dynamic, schedule}` so the list stays "runs I triggered". Blocklist (not allowlist) — never hides a genuinely user-triggered run
+- **Actor filtering**: `listRuns` calls `gh api repos/{repo}/actions/runs` (not `gh run list` — its `--json` has no actor field at all) with `actor=<login>` as a coarse server-side pre-filter, then keeps only runs where `triggering_actor.login == login`. GitHub's `actor=` param leaks runs the user didn't trigger: Dependabot version updates, scheduled cron runs, and — the one that isn't event-shaped, so a `dynamic`/`schedule` blocklist can't catch it — a `workflow_dispatch` run someone else triggered on a branch whose HEAD commit the user happens to have authored. Checking `triggering_actor` directly subsumes all three cases in one precise check
 - **Command log**: `CommandLog` writes to `~/Library/Logs/Gheen/commands.log` (last 100, serial queue), opened from Settings. Records every `gh` call (with duration + exit status, and the stderr reason folded in on failure or `timeout`), plus no-gh-call events: `monitor started`, idle backoff, no repos, skipped tick, `poll watchdog — abandoning stuck poll`, and `error:` lines. Gap between timestamps = real stall
 - Menubar icons: `circle` idle, `circle.dotted` active, `circle.fill` red on unacked failure
 

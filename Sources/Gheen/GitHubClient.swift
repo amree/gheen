@@ -267,21 +267,67 @@ actor GitHubClient {
         _ = try await run(args)
     }
 
-    func listRuns(repo: String, user: String) async throws -> [Run] {
-        let fields = "databaseId,attempt,status,conclusion,workflowName," +
-                     "displayTitle,headBranch,event,url,createdAt,updatedAt"
-        let data = try await run([
-            "run", "list", "-R", repo, "-u", user, "-L", "100", "--json", fields
-        ])
+    /// One run as returned by `GET /repos/{repo}/actions/runs` (REST shape,
+    /// snake_case) — `gh run list --json` has no equivalent field, only this
+    /// raw endpoint exposes `triggering_actor`.
+    struct APIRun: Decodable {
+        struct Actor: Decodable { let login: String }
+        let id: Int
+        let runAttempt: Int
+        let status: String
+        let conclusion: String?
+        let name: String?
+        let displayTitle: String
+        let headBranch: String
+        let event: String
+        let htmlUrl: String
+        let createdAt: Date
+        let updatedAt: Date
+        let triggeringActor: Actor
+
+        enum CodingKeys: String, CodingKey {
+            case id, status, conclusion, name, event
+            case runAttempt = "run_attempt"
+            case displayTitle = "display_title"
+            case headBranch = "head_branch"
+            case htmlUrl = "html_url"
+            case createdAt = "created_at"
+            case updatedAt = "updated_at"
+            case triggeringActor = "triggering_actor"
+        }
+    }
+
+    /// Decode the REST run-list body and keep only runs `user` actually
+    /// triggered. GitHub's `actor=` query param is a coarse pre-filter, not an
+    /// exact match — it leaks runs where `user` merely authored the branch's
+    /// HEAD commit but someone else dispatched the run, plus Dependabot version
+    /// updates and scheduled cron runs. `triggering_actor` is the one field
+    /// that reflects who actually triggered this run/attempt, so it replaces
+    /// all of the above with one precise check instead of an event blocklist.
+    /// A free function (not actor-isolated) so tests can call it directly.
+    static func parseRuns(_ data: Data, user: String) throws -> [APIRun] {
+        struct Envelope: Decodable { let workflowRuns: [APIRun]
+            enum CodingKeys: String, CodingKey { case workflowRuns = "workflow_runs" }
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        // GitHub's `-u <login>` actor filter leaks runs the user didn't trigger:
-        // Dependabot version updates (event "dynamic", actor dependabot[bot]) and
-        // scheduled cron runs (event "schedule", actor = whoever owns the schedule).
-        // Drop those events so the list stays "runs I triggered".
-        let leakedEvents: Set<String> = ["dynamic", "schedule"]
-        var runs = try decoder.decode([Run].self, from: data)
-            .filter { !leakedEvents.contains($0.event) }
+        return try decoder.decode(Envelope.self, from: data).workflowRuns
+            .filter { $0.triggeringActor.login == user }
+    }
+
+    func listRuns(repo: String, user: String) async throws -> [Run] {
+        // `gh api` defaults to POST once any -f/-F param is present — this
+        // endpoint is GET-only, so --method must be explicit or it 404s.
+        let data = try await run([
+            "api", "repos/\(repo)/actions/runs", "--method", "GET",
+            "-f", "actor=\(user)", "-F", "per_page=100"
+        ])
+        var runs = try Self.parseRuns(data, user: user).map { r in
+            Run(databaseId: r.id, attempt: r.runAttempt, status: r.status,
+                conclusion: r.conclusion, workflowName: r.name ?? "",
+                displayTitle: r.displayTitle, headBranch: r.headBranch,
+                event: r.event, url: r.htmlUrl, createdAt: r.createdAt, updatedAt: r.updatedAt)
+        }
         for i in runs.indices { runs[i].repo = repo }
         return runs
     }
