@@ -40,7 +40,10 @@ final class Monitor: ObservableObject {
         var baselined = false
         var seenActiveKeys: Set<String> = []
         var prevPollStartedAt: Date?
-        var lastActiveRuns: [Run] = []
+        // Last set of runs this repo actually rendered. Doubles as the
+        // fallback source when a poll can't fully account for the repo — see
+        // `Monitor.reconcile`.
+        var lastKnownRuns: [Run] = []
     }
     private var repoStates: [String: RepoState] = [:]
     private var sleepStart: Date?
@@ -194,33 +197,38 @@ final class Monitor: ObservableObject {
             return
         }
 
-        var repoResults: [String: [Run]] = [:]
+        var freshByRepo: [String: [Run]] = [:]
         var repoErrors: [String: Error] = [:]
         // Serial loop — avoids @MainActor + withTaskGroup result-collection issues in Swift 5.
         // With typical repo counts (1-5) the latency difference is negligible.
         for repo in repos {
             do {
-                repoResults[repo] = try await client.listRuns(repo: repo, user: user)
+                freshByRepo[repo] = try await client.listRuns(repo: repo, user: user)
             } catch {
                 repoErrors[repo] = error
             }
         }
-
-        // A repo that failed this tick keeps showing its last-known active runs
-        // instead of dropping off the list — a transient gh api hiccup on one
-        // repo must not make an in-progress job flicker away from the UI.
-        Monitor.applyFallback(
-            results: &repoResults,
-            errors: repoErrors,
-            lastActive: repoStates.mapValues(\.lastActiveRuns))
-
-        if repoResults.isEmpty, let error = repoErrors.values.first {
-            setError(error)
-            return
-        }
         // If the watchdog abandoned this poll while it was awaiting gh, bail before
         // touching any shared state or firing stale notifications.
         guard gen == pollGeneration else { return }
+
+        // A poll that can't fully account for a repo — a hard `gh api` failure,
+        // or a 200 response GitHub's actor= search index hasn't caught up on
+        // yet and so is silently missing a still-active run — must not regress
+        // what's displayed for it. Reconcile against what that repo last
+        // rendered instead of taking this tick's response at face value.
+        var repoResults: [String: [Run]] = [:]
+        for repo in repos {
+            let lastKnown = repoStates[repo]?.lastKnownRuns ?? []
+            let (runs, carriedOver) = Monitor.reconcile(fresh: freshByRepo[repo], lastKnown: lastKnown)
+            repoResults[repo] = runs
+            if !carriedOver.isEmpty {
+                let reason = repoErrors[repo] != nil ? "repo fetch failed" : "missing from a successful response"
+                CommandLog.append(
+                    "carried forward \(carriedOver.count) run(s) for \(repo) (\(reason)): " +
+                    carriedOver.map(\.runKey).joined(separator: ", "))
+            }
+        }
 
         errorBanner = repoErrors.isEmpty ? nil
             : "Some repos failed: \(repoErrors.keys.joined(separator: ", "))"
@@ -255,13 +263,8 @@ final class Monitor: ObservableObject {
 
         for (repo, runs) in repoResults {
             var state = repoStates[repo, default: RepoState()]
+            let active = runs.filter { $0.isActive }
             let finished = runs.filter { $0.isCompleted }
-            // GitHub's actor= search index can lag a poll behind real state and
-            // silently omit a still-active run from an otherwise-successful
-            // response. A run only leaves the active list once it's actually
-            // reported finished — a run present last poll but simply absent
-            // this poll (not completed, not anything) is carried forward.
-            let active = Monitor.reconcileActive(runs: runs, previouslyActive: state.lastActiveRuns)
 
             if !state.baselined {
                 // First successful poll for this repo — record all finished runs
@@ -290,7 +293,7 @@ final class Monitor: ObservableObject {
 
             state.seenActiveKeys = Set(active.map { $0.runKey })
             state.prevPollStartedAt = pollStart
-            state.lastActiveRuns = active
+            state.lastKnownRuns = runs
             repoStates[repo] = state
 
             allActive.append(contentsOf: active)
@@ -355,31 +358,27 @@ final class Monitor: ObservableObject {
         "\(run.repo) · \(run.headBranch) · \(run.workflowName)"
     }
 
-    /// Backfills a failed repo's slot in `results` with its last-known active
-    /// runs, so one tick's transient `gh api` failure doesn't make an
-    /// in-progress job disappear from the UI. Pure and MainActor-free so it's
-    /// directly unit-testable. Internal (not private) for GheenTests.
-    /// A run only counts as no-longer-active once it's actually reported
-    /// completed. If it was active last poll but this poll's `runs` doesn't
-    /// mention it at all (neither active nor completed), it's carried
-    /// forward rather than treated as gone. Pure and MainActor-free for
-    /// direct unit testing.
-    nonisolated static func reconcileActive(runs: [Run], previouslyActive: [Run]) -> [Run] {
-        let active = runs.filter { $0.isActive }
-        let returnedKeys = Set(runs.map { $0.runKey })
-        let stillMissing = previouslyActive.filter { !returnedKeys.contains($0.runKey) }
-        return active + stillMissing
-    }
-
-    nonisolated static func applyFallback(
-        results: inout [String: [Run]],
-        errors: [String: Error],
-        lastActive: [String: [Run]]
-    ) {
-        for repo in errors.keys {
-            if let stale = lastActive[repo], !stale.isEmpty {
-                results[repo] = stale
-            }
-        }
+    /// The single place that decides what "this repo's runs" means for a poll,
+    /// given what actually came back for it.
+    ///
+    /// `fresh == nil` is a hard `gh api` failure — nothing came back at all, so
+    /// the entire last-known list carries forward (active *and*
+    /// recently-finished, so the failing repo doesn't vanish from the capped
+    /// "recently finished" list and let another repo's older runs crowd in).
+    ///
+    /// `fresh != nil` is a successful response, but GitHub's `actor=` search
+    /// index can lag a poll behind real state and silently omit a still-active
+    /// run. Only *active* runs missing from an otherwise-successful response
+    /// are carried forward — a finished run that ages out of a real page is
+    /// expected and correct, not a gap to paper over.
+    ///
+    /// Pure and MainActor-free so it's directly unit-testable. Internal (not
+    /// private) for GheenTests. Returns the carried-over runs alongside the
+    /// result so the caller can log when this kicks in.
+    nonisolated static func reconcile(fresh: [Run]?, lastKnown: [Run]) -> (runs: [Run], carriedOver: [Run]) {
+        guard let fresh else { return (lastKnown, lastKnown) }
+        let freshKeys = Set(fresh.map { $0.runKey })
+        let missing = lastKnown.filter { $0.isActive && !freshKeys.contains($0.runKey) }
+        return (fresh + missing, missing)
     }
 }
