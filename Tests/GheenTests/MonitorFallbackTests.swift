@@ -10,8 +10,8 @@ import XCTest
 final class MonitorFallbackTests: XCTestCase {
     private struct DummyError: Error {}
 
-    private func makeRun(id: Int) -> Run {
-        Run(databaseId: id, attempt: 1, status: "in_progress", conclusion: nil,
+    private func makeRun(id: Int, status: String = "in_progress") -> Run {
+        Run(databaseId: id, attempt: 1, status: status, conclusion: nil,
             workflowName: "Deploy", displayTitle: "Deploy to staging",
             headBranch: "main", event: "workflow_dispatch",
             url: "https://example.com/\(id)", createdAt: Date(), updatedAt: Date())
@@ -35,5 +35,28 @@ final class MonitorFallbackTests: XCTestCase {
         Monitor.applyFallback(results: &results, errors: errors, lastActive: [:])
 
         XCTAssertNil(results["repoB"])
+    }
+
+    // MARK: - reconcileActive (actor-index-lag flapping)
+
+    func testRunMissingFromResponseIsCarriedForwardAsActive() {
+        let run = makeRun(id: 1)
+        let reconciled = Monitor.reconcileActive(runs: [], previouslyActive: [run])
+        XCTAssertEqual(reconciled.map(\.databaseId), [1])
+    }
+
+    func testRunReportedCompletedIsNotCarriedForward() {
+        let active = makeRun(id: 1)
+        let finishedVersion = makeRun(id: 1, status: "completed")
+
+        let reconciled = Monitor.reconcileActive(runs: [finishedVersion], previouslyActive: [active])
+
+        XCTAssertTrue(reconciled.isEmpty)
+    }
+
+    func testRunStillActiveInResponseIsNotDuplicated() {
+        let run = makeRun(id: 1)
+        let reconciled = Monitor.reconcileActive(runs: [run], previouslyActive: [run])
+        XCTAssertEqual(reconciled.map(\.databaseId), [1])
     }
 }

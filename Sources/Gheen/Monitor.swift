@@ -255,8 +255,13 @@ final class Monitor: ObservableObject {
 
         for (repo, runs) in repoResults {
             var state = repoStates[repo, default: RepoState()]
-            let active = runs.filter { $0.isActive }
             let finished = runs.filter { $0.isCompleted }
+            // GitHub's actor= search index can lag a poll behind real state and
+            // silently omit a still-active run from an otherwise-successful
+            // response. A run only leaves the active list once it's actually
+            // reported finished — a run present last poll but simply absent
+            // this poll (not completed, not anything) is carried forward.
+            let active = Monitor.reconcileActive(runs: runs, previouslyActive: state.lastActiveRuns)
 
             if !state.baselined {
                 // First successful poll for this repo — record all finished runs
@@ -354,6 +359,18 @@ final class Monitor: ObservableObject {
     /// runs, so one tick's transient `gh api` failure doesn't make an
     /// in-progress job disappear from the UI. Pure and MainActor-free so it's
     /// directly unit-testable. Internal (not private) for GheenTests.
+    /// A run only counts as no-longer-active once it's actually reported
+    /// completed. If it was active last poll but this poll's `runs` doesn't
+    /// mention it at all (neither active nor completed), it's carried
+    /// forward rather than treated as gone. Pure and MainActor-free for
+    /// direct unit testing.
+    nonisolated static func reconcileActive(runs: [Run], previouslyActive: [Run]) -> [Run] {
+        let active = runs.filter { $0.isActive }
+        let returnedKeys = Set(runs.map { $0.runKey })
+        let stillMissing = previouslyActive.filter { !returnedKeys.contains($0.runKey) }
+        return active + stillMissing
+    }
+
     nonisolated static func applyFallback(
         results: inout [String: [Run]],
         errors: [String: Error],
