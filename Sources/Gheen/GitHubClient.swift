@@ -298,12 +298,13 @@ actor GitHubClient {
     }
 
     /// Decode the REST run-list body and keep only runs `user` actually
-    /// triggered. GitHub's `actor=` query param is a coarse pre-filter, not an
-    /// exact match — it leaks runs where `user` merely authored the branch's
-    /// HEAD commit but someone else dispatched the run, plus Dependabot version
-    /// updates and scheduled cron runs. `triggering_actor` is the one field
-    /// that reflects who actually triggered this run/attempt, so it replaces
-    /// all of the above with one precise check instead of an event blocklist.
+    /// triggered, out of the unfiltered (all-actors) run list. There's no
+    /// reliable server-side pre-filter for this (see `listRuns`), so every run
+    /// in the page is checked here. `triggering_actor` is the one field that
+    /// reflects who actually triggered this run/attempt — it correctly
+    /// excludes runs where `user` merely authored the branch's HEAD commit but
+    /// someone else dispatched the run, plus Dependabot version updates and
+    /// scheduled cron runs, all in one check.
     /// A free function (not actor-isolated) so tests can call it directly.
     static func parseRuns(_ data: Data, user: String) throws -> [APIRun] {
         struct Envelope: Decodable { let workflowRuns: [APIRun]
@@ -316,11 +317,20 @@ actor GitHubClient {
     }
 
     func listRuns(repo: String, user: String) async throws -> [Run] {
+        // Deliberately no `actor=` param: it's backed by an eventually-consistent
+        // search index that can serve a stale/wrong page on an otherwise-normal
+        // 200 — confirmed by hitting this endpoint with actor= repeatedly and
+        // getting a page of months-old runs on one call and the correct recent
+        // page on the next two, with identical params. The unfiltered endpoint
+        // (no actor=) was stable across repeated calls in the same test.
+        // `triggering_actor` filtering below already does the real work, so
+        // actor= bought nothing but an intermittently-wrong result set.
+        //
         // `gh api` defaults to POST once any -f/-F param is present — this
         // endpoint is GET-only, so --method must be explicit or it 404s.
         let data = try await run([
             "api", "repos/\(repo)/actions/runs", "--method", "GET",
-            "-f", "actor=\(user)", "-F", "per_page=100"
+            "-F", "per_page=100"
         ])
         var runs = try Self.parseRuns(data, user: user).map { r in
             Run(databaseId: r.id, attempt: r.runAttempt, status: r.status,
