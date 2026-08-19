@@ -40,6 +40,7 @@ final class Monitor: ObservableObject {
         var baselined = false
         var seenActiveKeys: Set<String> = []
         var prevPollStartedAt: Date?
+        var lastActiveRuns: [Run] = []
     }
     private var repoStates: [String: RepoState] = [:]
     private var sleepStart: Date?
@@ -205,6 +206,14 @@ final class Monitor: ObservableObject {
             }
         }
 
+        // A repo that failed this tick keeps showing its last-known active runs
+        // instead of dropping off the list — a transient gh api hiccup on one
+        // repo must not make an in-progress job flicker away from the UI.
+        Monitor.applyFallback(
+            results: &repoResults,
+            errors: repoErrors,
+            lastActive: repoStates.mapValues(\.lastActiveRuns))
+
         if repoResults.isEmpty, let error = repoErrors.values.first {
             setError(error)
             return
@@ -276,6 +285,7 @@ final class Monitor: ObservableObject {
 
             state.seenActiveKeys = Set(active.map { $0.runKey })
             state.prevPollStartedAt = pollStart
+            state.lastActiveRuns = active
             repoStates[repo] = state
 
             allActive.append(contentsOf: active)
@@ -338,5 +348,21 @@ final class Monitor: ObservableObject {
 
     private func notificationBody(_ run: Run) -> String {
         "\(run.repo) · \(run.headBranch) · \(run.workflowName)"
+    }
+
+    /// Backfills a failed repo's slot in `results` with its last-known active
+    /// runs, so one tick's transient `gh api` failure doesn't make an
+    /// in-progress job disappear from the UI. Pure and MainActor-free so it's
+    /// directly unit-testable. Internal (not private) for GheenTests.
+    nonisolated static func applyFallback(
+        results: inout [String: [Run]],
+        errors: [String: Error],
+        lastActive: [String: [Run]]
+    ) {
+        for repo in errors.keys {
+            if let stale = lastActive[repo], !stale.isEmpty {
+                results[repo] = stale
+            }
+        }
     }
 }
