@@ -6,7 +6,12 @@ struct SettingsView: View {
     @EnvironmentObject var monitor: Monitor
     var onClose: () -> Void
 
-    @State private var newRepo = ""
+    // Explicit State storage, not `@State` — see MenuContentView.
+    private let newRepoState = State(initialValue: "")
+    private var newRepo: String {
+        get { newRepoState.wrappedValue }
+        nonmutating set { newRepoState.wrappedValue = newValue }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -38,7 +43,7 @@ struct SettingsView: View {
             }
 
             HStack {
-                TextField("owner/repo", text: $newRepo)
+                TextField("owner/repo", text: newRepoState.projectedValue)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(add)
                 Button("Add", action: add)

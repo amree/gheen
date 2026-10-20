@@ -4,8 +4,16 @@ import AppKit
 struct MenuContentView: View {
     @EnvironmentObject var monitor: Monitor
     @EnvironmentObject var settings: SettingsStore
-    @State private var showSettings = false
-    @State private var filterEvent: String = ""
+    // Explicit State storage, not `@State`: on the macOS 27 SDK `@State` is a
+    // macro whose SwiftUIMacros plugin ships only with full Xcode, so it fails
+    // to compile with just the Command Line Tools.
+    private let showSettingsState = State(initialValue: false)
+    private let filterEventState = State(initialValue: "")
+    private var showSettings: Bool {
+        get { showSettingsState.wrappedValue }
+        nonmutating set { showSettingsState.wrappedValue = newValue }
+    }
+    private var filterEvent: String { filterEventState.wrappedValue }
 
     var body: some View {
         Group {
@@ -28,7 +36,7 @@ struct MenuContentView: View {
             HStack {
                 Text("Gheen").font(.headline)
                 Spacer()
-                Picker("", selection: $filterEvent) {
+                Picker("", selection: filterEventState.projectedValue) {
                     Text("All").tag("")
                     Text("PR").tag("PR")
                     Text("Push").tag("Push")

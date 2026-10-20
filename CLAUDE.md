@@ -61,4 +61,5 @@ Makefile                  build / run / clean / install targets
 ## What NOT to do
 - Don't add per-run `gh run view` polling — list + diff is intentionally the only mechanism
 - Don't add shell interpolation to `gh` calls — always use `Process` with an argument array
+- Don't use `@State` — on the macOS 27 SDK it's a macro needing the SwiftUIMacros plugin, which Command Line Tools don't ship. Declare `private let xState = State(initialValue: …)` and bind with `xState.projectedValue`
 - Don't prompt `gh auth logout` in tests — use a bogus gh-path override or `GH_CONFIG_DIR` pointing at an empty dir
